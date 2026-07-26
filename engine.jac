@@ -685,6 +685,14 @@ def build_decision_intel(session: Session, best_id: str, best_full: dict, surviv
         } else {
             do_line = f"YES — {move}. Fund the gear only if capacity unlocks revenue before {ms_name}.";
         }
+    } elif ("hire" in dlow) or ("engineer" in dlow) or ("headcount" in dlow) or ("recruit" in dlow) or ("staff" in dlow) {
+        if ("hold" in move.lower()) or ("no new" in move.lower()) {
+            do_line = f"NO — do not hire the full ask. Surviving path: {move}.";
+        } elif ("first" in move.lower()) or ("half" in move.lower()) or ("contractor" in move.lower()) {
+            do_line = f"PARTIAL YES — {move}. Prove ramp before opening the rest of the seats.";
+        } else {
+            do_line = f"YES — {move}. Only if those seats move {ms_name} before cash-out {cash_out}.";
+        }
     } else {
         do_line = f"DO: {move}.";
     }
@@ -699,6 +707,40 @@ def build_decision_intel(session: Session, best_id: str, best_full: dict, surviv
     } else {
         because = "No branch survived hard arithmetic — do not execute the plan as stated.";
     }
+
+    # Blue / Red detail strips for the straight-answer panel
+    blue_bits: list = [];
+    for f in session.findings {
+        if str(f.get("side", "")) == "blue" and len(blue_bits) < 3 {
+            blue_bits.append(f"{str(f.get('claim', ''))[:90]} → {str(f.get('evidence', ''))[:70]}");
+        }
+    }
+    red_bits: list = [];
+    for a in session.attacks {
+        if len(red_bits) < 3 {
+            red_bits.append(str(a.get("claim", ""))[:110]);
+        }
+    }
+    blue_read = " · ".join(blue_bits) if blue_bits else f"Blue recommended «{move}» on the {desk} desk.";
+    red_read = " · ".join(red_bits) if red_bits else "No Red attacks recorded on this run.";
+
+    detail_bits: list = [];
+    detail_bits.append(f"Branch {best_id} on the {desk} desk.");
+    if best_full {
+        detail_bits.append(
+            f"State after the recommended move: cash ${float(best_full.get('cash', 0.0)):,.0f}, "
+            + f"burn ${float(best_full.get('monthly_burn', 0.0)):,.0f}/mo, "
+            + f"MRR ${float(best_full.get('mrr', 0.0)):,.0f}/mo, "
+            + f"headcount {int(best_full.get('headcount', 0))}."
+        );
+        detail_bits.append(
+            f"Date race: cash-out {cash_out} vs {ms_name} on {ms_date} "
+            + (f"— HIT with {margin_days} days margin." if hit and margin_days > 0 else ("— HIT (cash-flow positive)." if hit and cf_plus else ("— HIT, thin margin." if hit else "— MISS; rescue path only.")))
+        );
+    }
+    detail_bits.append(f"Tree: {len(survivors)} survivors, {len(dead)} kills.");
+    detail = " ".join(detail_bits);
+
     one_liner = f"ANSWER: {do_line} {because}";
     if dont {
         one_liner = one_liner + f" {dont}";
@@ -711,7 +753,14 @@ def build_decision_intel(session: Session, best_id: str, best_full: dict, surviv
         "dates": f"Recommended: {cash_out} · Milestone: {ms_name} on {ms_date} · Runway: {runway}",
         "decision": decision,
         "move": move,
-        "desk": desk
+        "desk": desk,
+        "blue": blue_read,
+        "red": red_read,
+        "detail": detail,
+        "survivors": len(survivors),
+        "kills": len(dead),
+        "margin_days": margin_days,
+        "milestone_hit": hit
     };
 
     # Verdict prose — what the decision IS
@@ -744,6 +793,18 @@ def build_decision_intel(session: Session, best_id: str, best_full: dict, surviv
             + (f" (margin {margin_days} days, milestone HIT)." if hit and margin_days > 0 and not cf_plus else (" (cash-flow positive, milestone HIT)." if hit and cf_plus else (" (milestone HIT, thin margin)." if hit else " (milestone MISS on this line)."))
             )
         );
+        analysis_bits.append(
+            f"Post-move snapshot: cash ${float(best_full.get('cash', 0.0)):,.0f}, "
+            + f"burn ${float(best_full.get('monthly_burn', 0.0)):,.0f}/mo, "
+            + f"MRR ${float(best_full.get('mrr', 0.0)):,.0f}/mo, "
+            + f"headcount {int(best_full.get('headcount', 0))}, runway {runway}."
+        );
+    }
+    if blue_bits {
+        analysis_bits.append("Blue moves tested: " + " | ".join(blue_bits) + ".");
+    }
+    if red_bits {
+        analysis_bits.append("Red pressure: " + " | ".join(red_bits) + ".");
     }
     if len(survivors) >= 2 {
         runner = survivors[1];

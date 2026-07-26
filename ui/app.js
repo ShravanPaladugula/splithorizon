@@ -1411,10 +1411,14 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     verdict.className = `insp-verdict${v.fail ? " fail" : ""}`;
     $("insp-stats").innerHTML = `
       <div><dt>Status</dt><dd>${b.alive === false ? "Killed" : b.id === recommended ? "Recommended" : "Alive"}</dd></div>
+      <div><dt>Desk</dt><dd>${escapeHtml(b.desk || "—")}</dd></div>
       <div><dt>Cash-out</dt><dd>${escapeHtml(pretty(b.cash_out_date))}</dd></div>
       <div><dt>Milestone</dt><dd>${escapeHtml(pretty(b.milestone_date))}</dd></div>
-      <div><dt>Runway</dt><dd>${b.runway_months != null ? Number(b.runway_months).toFixed(2) + " mo" : "—"}</dd></div>
+      <div><dt>Runway</dt><dd>${b.runway_months != null ? (Number(b.runway_months) >= 900 ? "CF+" : Number(b.runway_months).toFixed(2) + " mo") : "—"}</dd></div>
       <div><dt>Milestone hit</dt><dd>${b.milestone_hit ? "yes" : "no"}</dd></div>
+      <div><dt>Cash</dt><dd>${money(b.cash)}</dd></div>
+      <div><dt>Burn / MRR</dt><dd>${money(b.monthly_burn)} / ${money(b.mrr)}</dd></div>
+      <div><dt>Headcount</dt><dd>${b.headcount != null ? b.headcount : "—"}</dd></div>
       <div><dt>Cost Δ</dt><dd>${money(b.cost_delta)}</dd></div>`;
     $("insp-summary").textContent = b.summary || "";
     const kill = $("insp-kill");
@@ -1472,9 +1476,22 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     box.classList.remove("is-scrolled-away");
     $("answer-do").textContent = a.do || m.title || "Verdict";
     $("answer-because").textContent = a.because || m.prose || "";
+    if ($("answer-detail")) {
+      $("answer-detail").textContent = a.detail || "";
+      $("answer-detail").hidden = !a.detail;
+    }
     $("answer-do-detail").textContent = a.decision ? `You asked: ${a.decision}` : a.one_liner || "";
     $("answer-dont").textContent = a.dont || m.kill_shots || "See killed branches on the tree.";
     $("answer-dates").textContent = a.dates || m.date_line || "";
+    if ($("answer-blue")) $("answer-blue").textContent = a.blue || "—";
+    if ($("answer-red")) $("answer-red").textContent = a.red || "—";
+    if ($("answer-tree")) {
+      const s = a.survivors != null ? a.survivors : "—";
+      const k = a.kills != null ? a.kills : "—";
+      const hit = a.milestone_hit === true ? "milestone HIT" : a.milestone_hit === false ? "milestone MISS" : "";
+      const margin = a.margin_days != null ? ` · margin ${a.margin_days}d` : "";
+      $("answer-tree").textContent = `${s} survivors · ${k} kills${hit ? " · " + hit : ""}${margin}`;
+    }
   }
 
   function syncClearAnswerOnScroll() {
@@ -1496,6 +1513,9 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       <div class="pick-pill">Recommended ${escapeHtml(m.recommended_branch_id || "?")}</div>
       <p class="date-line mono">${escapeHtml(m.date_line || "")}</p>
       <p>${escapeHtml(m.prose || "")}</p>
+      ${(m.answer && m.answer.detail) ? `<p><strong>Detail:</strong> ${escapeHtml(m.answer.detail)}</p>` : ""}
+      ${(m.answer && m.answer.blue) ? `<p><strong>Blue:</strong> ${escapeHtml(m.answer.blue)}</p>` : ""}
+      ${(m.answer && m.answer.red) ? `<p><strong>Red:</strong> ${escapeHtml(m.answer.red)}</p>` : ""}
       <p class="kill-line"><strong>Kill shots:</strong> ${escapeHtml(m.kill_shots || "")}</p>
       <p><strong>Open risks:</strong> ${escapeHtml(m.open_risks || "")}</p>
       <p><strong>Dissent:</strong> ${escapeHtml(m.dissent || "")}</p>`;

@@ -791,11 +791,18 @@ body {
   max-width: 34ch;
 }
 .answer-because {
-  margin: 0 0 1rem;
+  margin: 0 0 0.65rem;
   max-width: 64ch;
   font-size: 1rem;
   line-height: 1.45;
   color: var(--ink-soft);
+}
+.answer-detail {
+  margin: 0 0 1rem;
+  max-width: 72ch;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--muted);
 }
 .answer-grid {
   display: grid;
