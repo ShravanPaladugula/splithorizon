@@ -380,9 +380,11 @@ def score_branch(session: Session, b: dict) {
         cost_pen = float(b.get("spent", 0.0)) / max(session.budget, 1.0);
         # Prefer deeper patched survivors: round bonus + coverage - risk
         round_bonus = 0.08 * float(b.get("round", 0));
+        side_bonus = 0.12 if b.get("side_created") == "blue" else (0.0 if b.get("side_created") == "red" else 0.02);
         rank = (
             float(b.get("goal_coverage", 0.0))
             + round_bonus
+            + side_bonus
             - 0.55 * float(b.get("residual_risk", 0.5))
             - 0.15 * cost_pen
             - 0.1 * float(b.get("uncertainty", 0.5))

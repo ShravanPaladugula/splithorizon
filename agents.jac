@@ -4,6 +4,8 @@
 include schema;
 include tools;
 
+import json;
+
 walker SeedWorldWalker {
     has label: str = "seed";
 
@@ -74,15 +76,8 @@ walker ToolDispatchWalker {
 
     can run with Tool entry {
         if here.name == self.tool_name {
-            import json;
             ctx = json.loads(self.ctx_json) if self.ctx_json else {};
             res = dispatch_tool(here.name, ctx);
-            here +>: uses_tool(result_json=res.metrics_json) :+> Finding(
-                finding_id="tool_finding",
-                side="system",
-                claim=res.detail,
-                evidence=here.name
-            );
             report res.detail;
         }
     }
