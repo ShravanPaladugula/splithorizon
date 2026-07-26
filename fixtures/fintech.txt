@@ -1,0 +1,7 @@
+PROPOSAL: Clear a $240,000 outbound wire flagged as medium-risk to meet client SLA.
+
+Context: Corporate client needs same-day settlement. Fraud model score 0.62 (medium).
+Ops proposes: Clear now; investigate after posting to avoid SLA breach.
+Budget/risk limit: Expected fraud loss tolerance $50,000 for this corridor.
+Constraints (HARD): (1) SLA clearance within 2 hours from flag. (2) Must not clear if fused fraud risk > 0.80. (3) Manual hold allowed but burns SLA.
+Goal: Minimize fraud loss while keeping SLA breach rate under policy.

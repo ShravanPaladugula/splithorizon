@@ -1,0 +1,79 @@
+{
+  "world": {
+    "title": "Suspicious Wire — Hold vs Clear",
+    "domain": "fintech",
+    "budget": 50000,
+    "entities": [
+      {"kind": "actor", "name": "Payments Ops", "capacity": 1, "status": "on_sla"},
+      {"kind": "asset", "name": "Wire $240k", "capacity": 240000, "status": "flagged"},
+      {"kind": "actor", "name": "Fraud Fusion Model", "capacity": 1, "status": "score_0.62"}
+    ],
+    "constraints": [
+      {"rule": "sla", "hard": true, "description": "Clear or decide within 2h window", "limit_value": 1.0, "unit": "hours_remaining_min"},
+      {"rule": "must_not", "hard": true, "description": "Do not clear if fused fraud risk > 0.80", "limit_value": 0.8, "unit": "risk"},
+      {"rule": "budget", "hard": true, "description": "Expected fraud loss tolerance", "limit_value": 50000, "unit": "USD"}
+    ],
+    "goals": [
+      {"description": "Minimize fraud loss without reckless SLA breach", "metric": "loss_vs_sla", "target_value": 1.0, "weight": 1.0}
+    ]
+  },
+  "blue_r1": {
+    "who": "Payments Ops",
+    "what": "Clear the wire immediately to protect SLA; investigate post-posting",
+    "when_label": "T+0",
+    "cost": 0,
+    "rationale": "Naive clear-first plan.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r1": {
+    "description": "Fraud spike: fused risk jumps to 0.88 via synthetic identity cluster",
+    "severity": 0.9,
+    "likelihood": 0.6,
+    "target_ref": "Wire $240k",
+    "tag": "fraud_spike",
+    "rationale": "Clearing now would violate must_not fused-risk>0.80; expected loss >> tolerance.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r2": {
+    "who": "Fraud Analyst",
+    "what": "Patch: hard hold + step-up KYC; offer SLA exception credit within policy",
+    "when_label": "T+1",
+    "cost": 5000,
+    "rationale": "Stops the clear-on-spike kill shot; spends small operational cost.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r2": {
+    "description": "Client escalates SLA pressure; partial document set still incomplete",
+    "severity": 0.5,
+    "likelihood": 0.55,
+    "target_ref": "Payments Ops",
+    "tag": "fraud_spike",
+    "rationale": "Pressures SLA but risk remains elevated — hold still correct.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r3": {
+    "who": "Payments Ops",
+    "what": "Final: release only after risk <0.80 and dual-control approval",
+    "when_label": "T+2",
+    "cost": 2000,
+    "rationale": "Survivor procedure balances SLA credit vs fraud gate.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r3": {
+    "description": "Residual mule-account probe fails dual-control",
+    "severity": 0.35,
+    "likelihood": 0.25,
+    "target_ref": "Fraud Fusion Model",
+    "tag": "generic",
+    "rationale": "Controls hold.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "baseline": "ONE-SHOT BASELINE: Clear now. Medium score 0.62 is below panic threshold; SLA breach costs more than theoretical fraud. Investigate asynchronously. Confidence: high. (Overconfident — misses coordinated spike to 0.88.)",
+  "memo": {
+    "title": "Recommend hard hold with dual-control release",
+    "recommended_reason": "Red's fraud spike falsified clear-first. Survivor branch holds until fused risk <0.80 with dual control.",
+    "kill_shots": "Clear-on-SLA path dies when fused risk jumps to 0.88 (must_not).",
+    "open_risks": "Client relationship / SLA credit cost; incomplete docs delay.",
+    "dissent": "Ops still argues SLA optics; Arbiter prioritizes hard fraud gate."
+  }
+}

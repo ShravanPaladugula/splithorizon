@@ -1,0 +1,81 @@
+{
+  "world": {
+    "title": "Convoy Alpha Highway-9 Reroute",
+    "domain": "logistics",
+    "budget": 85000,
+    "entities": [
+      {"kind": "actor", "name": "Convoy Commander", "capacity": 1, "status": "ready"},
+      {"kind": "asset", "name": "Truck Fleet", "capacity": 12, "status": "loaded"},
+      {"kind": "location", "name": "Highway 9 Choke Point", "capacity": 1, "status": "fog"},
+      {"kind": "asset", "name": "Escort Unit", "capacity": 1, "status": "available"}
+    ],
+    "constraints": [
+      {"rule": "budget", "hard": true, "description": "Total mission spend <= $85k", "limit_value": 85000, "unit": "USD"},
+      {"rule": "must_not", "hard": true, "description": "No choke-point transit without overwatch in fog <200m", "limit_value": 0, "unit": ""},
+      {"rule": "sla", "hard": true, "description": "Delivery within 18 hours", "limit_value": 4, "unit": "hours_remaining_min"},
+      {"rule": "capacity", "hard": true, "description": "Route risk capacity under ISR cover", "limit_value": 12, "unit": "tons_equiv"}
+    ],
+    "goals": [
+      {"description": "Deliver >=90% medical cargo intact before SLA", "metric": "delivery_ratio", "target_value": 0.9, "weight": 1.0}
+    ]
+  },
+  "blue_r1": {
+    "who": "Convoy Commander",
+    "what": "Push Highway 9 immediately with standard escort — shortest path to beat SLA",
+    "when_label": "T+0",
+    "cost": 22000,
+    "rationale": "Naive Blue plan prioritizes speed over fog overwatch.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r1": {
+    "description": "Fog thickens at choke-point; ISR overwatch unavailable for 6 hours",
+    "severity": 0.85,
+    "likelihood": 0.7,
+    "target_ref": "Highway 9 Choke Point",
+    "tag": "logistics_delay",
+    "rationale": "Hard must_not: transit without overwatch in dense fog. Capacity/risk blows past cover.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r2": {
+    "who": "Convoy Commander",
+    "what": "Patch: divert to Ridge Road with drone overwatch + fuel contingency; hold choke until visibility OK",
+    "when_label": "T+1",
+    "cost": 28000,
+    "rationale": "Blue patches Red kill shot — avoids choke without overwatch, spends contingency within budget.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r2": {
+    "description": "Secondary delay on Ridge Road increases fuel burn but overwatch remains online",
+    "severity": 0.55,
+    "likelihood": 0.5,
+    "target_ref": "Truck Fleet",
+    "tag": "logistics_delay",
+    "rationale": "Stresses cost/SLA but does not re-break the hard must_not.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r3": {
+    "who": "Logistics Cell",
+    "what": "Final patch: pre-position fuel cache + stagger trucks to keep SLA buffer >= 5h",
+    "when_label": "T+2",
+    "cost": 9000,
+    "rationale": "Locks in survivor branch with SLA margin and budget headroom.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r3": {
+    "description": "Attempted false overwatch spoof — detected by checklist",
+    "severity": 0.4,
+    "likelihood": 0.3,
+    "target_ref": "Escort Unit",
+    "tag": "generic",
+    "rationale": "Red probes deception; ConstraintCheck + procedures hold.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "baseline": "ONE-SHOT BASELINE (no graph, no Red team): Proceed on Highway 9 immediately with standard escort. Fog is temporary; shortest path maximizes SLA probability. Budget $22k. Confidence: high. (Brittle — ignores hard overwatch constraint under fog.)",
+  "memo": {
+    "title": "Recommend Ridge Road patched convoy",
+    "recommended_reason": "Survivor branch avoids the fog choke must_not kill shot, stays inside $85k after contingency, and preserves SLA buffer. Highway-9 speed run is dead.",
+    "kill_shots": "R1 Red: fog + no overwatch at choke-point falsified the naive Highway 9 push (hard must_not / capacity cover).",
+    "open_risks": "Ridge secondary delay and fuel burn; residual ISR spoof risk is low but non-zero.",
+    "dissent": "Speed-first officers still prefer Highway 9; Arbiter rejects because Red proved the hard constraint break on that line."
+  }
+}

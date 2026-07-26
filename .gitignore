@@ -1,0 +1,11 @@
+.jac/
+.cache/
+out/
+__pycache__/
+*.pyc
+.DS_Store
+jac_setup.log
+out_run.log
+run_once.jac
+.venv/
+*.log

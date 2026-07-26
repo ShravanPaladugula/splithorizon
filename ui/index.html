@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SplitHorizon — Adversarial Counterfactuals</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <header class="brand-bar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <h1>SplitHorizon</h1>
+    </div>
+    <p class="tagline">Fork the world. Let Red break the plan. Keep what survives.</p>
+  </header>
+
+  <main class="stage">
+    <section class="panel proposal-panel" aria-label="Proposal">
+      <label for="fixture">Fixture</label>
+      <select id="fixture"></select>
+      <label for="proposal">Proposed action + context</label>
+      <textarea id="proposal" maxlength="4000" rows="12"></textarea>
+      <div class="actions">
+        <button id="run" type="button" class="primary">Run SplitHorizon</button>
+        <label class="toggle"><input type="checkbox" id="baseline" checked /> Show baseline foil</label>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </section>
+
+    <section class="panel graph-panel" aria-label="Branch graph">
+      <h2>Branch graph</h2>
+      <svg id="graph" viewBox="0 0 720 520" role="img" aria-label="Counterfactual branch tree"></svg>
+      <div id="legend" class="legend">
+        <span class="lg blue">Blue fork</span>
+        <span class="lg red">Red fork</span>
+        <span class="lg dead">Killed</span>
+        <span class="lg pick">Recommended</span>
+      </div>
+    </section>
+
+    <section class="panel memo-panel" aria-label="Decision memo">
+      <h2>Decision memo</h2>
+      <article id="memo">
+        <p class="muted">Run a fixture to generate an Arbiter memo.</p>
+      </article>
+      <h2 class="sub">Baseline foil</h2>
+      <article id="baseline-out" class="baseline">
+        <p class="muted">One-shot LLM plan without graph or adversary.</p>
+      </article>
+      <h2 class="sub">Tool visits</h2>
+      <ul id="tools" class="tool-list"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>JacHacks SF · memory is the branched graph · agents are walkers · tools are places</p>
+  </footer>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

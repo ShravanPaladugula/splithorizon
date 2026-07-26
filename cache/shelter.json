@@ -1,0 +1,79 @@
+{
+  "world": {
+    "title": "Shelter Bed Allocation under Surge",
+    "domain": "shelter",
+    "budget": 12000,
+    "entities": [
+      {"kind": "asset", "name": "Shelter Beds", "capacity": 40, "status": "available"},
+      {"kind": "actor", "name": "Intake Desk", "capacity": 1, "status": "overloaded"},
+      {"kind": "actor", "name": "Priority Families", "capacity": 18, "status": "queued"}
+    ],
+    "constraints": [
+      {"rule": "capacity", "hard": true, "description": "Max 40 beds", "limit_value": 40, "unit": "beds"},
+      {"rule": "equity", "hard": true, "description": "Equity score >= 0.70", "limit_value": 0.7, "unit": "score"},
+      {"rule": "budget", "hard": true, "description": "Overflow vouchers <= $12k", "limit_value": 12000, "unit": "USD"}
+    ],
+    "goals": [
+      {"description": "Shelter highest-need clients without collapsing equity", "metric": "need_coverage", "target_value": 1.0, "weight": 1.0}
+    ]
+  },
+  "blue_r1": {
+    "who": "Intake Desk",
+    "what": "First-come first-served: fill all 40 beds from head of queue",
+    "when_label": "T+0",
+    "cost": 0,
+    "rationale": "Naive FCFS ignores equity priority mix.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r1": {
+    "description": "Capacity surge: 58 arrivals; FCFS starves disability/family priority — equity collapses",
+    "severity": 0.85,
+    "likelihood": 0.75,
+    "target_ref": "Shelter Beds",
+    "tag": "capacity_surge",
+    "rationale": "Hard equity floor breached under FCFS during surge.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r2": {
+    "who": "Intake Desk",
+    "what": "Patch: priority bands (family/disability) + hotel vouchers for overflow within $12k",
+    "when_label": "T+1",
+    "cost": 9000,
+    "rationale": "Restores equity floor and keeps physical capacity honest.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r2": {
+    "description": "Further arrivals threaten voucher budget",
+    "severity": 0.5,
+    "likelihood": 0.45,
+    "target_ref": "Intake Desk",
+    "tag": "capacity_surge",
+    "rationale": "Budget pressure without re-breaking equity if bands hold.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r3": {
+    "who": "City Coordinator",
+    "what": "Final: lock priority bands + voucher cap alerts at 80% spend",
+    "when_label": "T+2",
+    "cost": 1500,
+    "rationale": "Survivor allocation policy.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r3": {
+    "description": "Attempt to game priority with false documentation — checklist catch",
+    "severity": 0.35,
+    "likelihood": 0.3,
+    "target_ref": "Priority Families",
+    "tag": "generic",
+    "rationale": "Controls hold.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "baseline": "ONE-SHOT BASELINE: Fill beds FCFS tonight; it is fair by arrival time and maximizes throughput. Vouchers later if needed. Confidence: high. (Misses equity floor under surge.)",
+  "memo": {
+    "title": "Recommend priority-band allocation + capped vouchers",
+    "recommended_reason": "FCFS dies on equity. Survivor uses priority bands and voucher spend inside $12k.",
+    "kill_shots": "Red surge showed FCFS drops equity below 0.70 while overstating capacity honesty.",
+    "open_risks": "Voucher burn rate; documentation fraud attempts.",
+    "dissent": "Queue-order advocates call priority unfair; Arbiter enforces hard equity constraint."
+  }
+}

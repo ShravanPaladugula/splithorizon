@@ -1,0 +1,6 @@
+PROPOSAL: Allocate all 40 remaining shelter beds to the first-arrived queue tonight.
+
+Context: Cold weather surge. 58 people in queue. Equity policy requires proportional access for families with children and disability-priority clients.
+Budget for overflow hotel vouchers: $12,000.
+Constraints (HARD): (1) Physical capacity 40 beds. (2) Equity score must remain ≥ 0.70. (3) Overflow spend ≤ $12k.
+Goal: Shelter the highest-need clients without collapsing equity or capacity.

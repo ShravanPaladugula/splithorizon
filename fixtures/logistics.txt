@@ -1,0 +1,8 @@
+PROPOSAL: Reroute Supply Convoy Alpha through Highway 9 under fog advisory.
+
+Context: Forward operating base needs medical and fuel resupply within 18 hours.
+Current plan: Take the shortest paved route (Highway 9) through the river choke-point.
+Budget: $85,000 for escort, fuel, and contingency.
+Assets: 4 trucks (capacity 12 tons), 1 escort unit, limited ISR coverage in fog.
+Constraints (HARD): (1) Do not exceed $85k. (2) Do not transit choke-point without overwatch if fog visibility < 200m. (3) Delivery SLA 18h.
+Goal: Deliver ≥90% of medical cargo intact before SLA.
