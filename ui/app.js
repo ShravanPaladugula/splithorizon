@@ -712,10 +712,36 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       const c = data.company;
       $("company-chip").textContent = `${c.name || "Company"} · $${Number(c.cash).toLocaleString()} cash · $${Number(c.monthly_burn).toLocaleString()}/mo burn · milestone ${c.milestone_date}`;
     }
+    const banner = $("demo-banner");
+    if (banner) {
+      const offline = state.fixtureId === "interlock" || data.jac_runtime;
+      banner.hidden = false;
+      banner.textContent =
+        state.fixtureId === "interlock"
+          ? "Offline golden run · Jac walkers · deterministic verifiers"
+          : data.jac_runtime
+            ? `Jac runtime · ${data.jac_runtime}`
+            : "Live simulation · Jac walkers · deterministic verifiers";
+    }
+    renderKillCallout(data);
     renderMemo(data);
     renderTimeline(data);
     setEventIndex(0);
     startPlay();
+  }
+
+  function renderKillCallout(data) {
+    const box = $("kill-callout");
+    if (!box) return;
+    const dead = (data.branches || []).find((b) => b.alive === false && b.kill_reason);
+    if (!dead) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    $("kill-callout-title").textContent = `${dead.id} killed · ${dead.last_action || dead.move || dead.label || "branch"}`;
+    $("kill-callout-body").textContent = dead.kill_reason;
+    box.onclick = () => selectBranch(dead.id);
   }
 
   $("run").addEventListener("click", async () => {

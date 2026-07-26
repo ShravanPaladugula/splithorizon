@@ -49,7 +49,7 @@ Click **Run the interlock demo**. Expect: blast-hire branch **killed** with a vi
 3. Graph builds L→R: Seed → Blue → Red → Verifier → Branches → Arbiter.
 4. Within ~30s a check **kills** hire-two with a number (cash-out before milestone).
 5. Survivors ranked by runway + milestone hit.
-6. Punchline: *Plan A runs out Sep 21. Plan B doesn't — cash-out Oct 10.*
+6. Punchline: *Plan A runs out Sep 22. Plan B doesn't — cash-out Oct 10.*
 7. Flash verifier registry (alive_at_milestone, hire_burn_delta, …).
 
 ## Jac layout

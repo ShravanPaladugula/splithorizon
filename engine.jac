@@ -230,6 +230,68 @@ def fork_branch(session: Session, parent: dict, label: str, side: str, round_no:
     return child;
 }
 
+def osp_put_branch(b: dict) {
+    # Materialize every future as a real Jac Branch node (OSP, not JSON-only).
+    root ++> Branch(
+        branch_id=str(b.get("id", "")),
+        parent_id=str(b.get("parent_id", "")),
+        round_no=int(b.get("round", 0)),
+        label=str(b.get("label", "")),
+        move=str(b.get("move", "")),
+        alive=bool(b.get("alive", True)),
+        kill_reason=str(b.get("kill_reason", "")),
+        summary=str(b.get("summary", "")),
+        side_created=str(b.get("side_created", "blue")),
+        cash=float(b.get("cash", 0.0)),
+        monthly_burn=float(b.get("monthly_burn", 0.0)),
+        mrr=float(b.get("mrr", 0.0)),
+        growth_rate=float(b.get("growth_rate", 0.0)),
+        headcount=int(b.get("headcount", 0)),
+        milestone=str(b.get("milestone", "")),
+        milestone_date=str(b.get("milestone_date", "")),
+        as_of=str(b.get("as_of", "")),
+        cash_out_date=str(b.get("cash_out_date", "")),
+        runway_months=float(b.get("runway_months", 0.0)),
+        milestone_hit=bool(b.get("milestone_hit", False))
+    );
+}
+
+def osp_put_attack(a: dict) {
+    root ++> Attack(
+        attack_id=str(a.get("id", "")),
+        claim=str(a.get("claim", "")),
+        severity=str(a.get("severity", "medium")),
+        check_hint=str(a.get("check_hint", "alive_at_milestone")),
+        round_no=int(a.get("round", 0))
+    );
+}
+
+def osp_put_evidence(branch_id: str, bundle: VerifyBundle) {
+    i = 0;
+    for e in bundle.evidence {
+        i += 1;
+        root ++> Evidence(
+            evidence_id=f"{branch_id}-e{i}",
+            check=e.check,
+            value=e.value,
+            passed=e.passed,
+            module=e.module
+        );
+    }
+}
+
+def osp_put_memo(memo: dict) {
+    root ++> Memo(
+        recommended_branch_id=str(memo.get("recommended_branch_id", "")),
+        title=str(memo.get("title", "")),
+        prose=str(memo.get("prose", "")),
+        kill_shots=str(memo.get("kill_shots", "")),
+        open_risks=str(memo.get("open_risks", "")),
+        dissent=str(memo.get("dissent", "")),
+        date_line=str(memo.get("date_line", ""))
+    );
+}
+
 def prune_if_needed(session: Session) {
     if len(session.branches) <= MAX_BRANCHES {
         return;
@@ -315,6 +377,8 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     } else {
         log_event(session, "blue", f"{child['id']}: {label} → cash-out {pretty_date(bundle.cash_out_date)}", child["id"]);
     }
+    osp_put_branch(child);
+    osp_put_evidence(child["id"], bundle);
     return child;
 }
 
@@ -364,6 +428,9 @@ def red_turn(session: Session, parent: dict, round_no: int) -> dict {
         msg = msg + f" → cash-out {pretty_date(bundle.cash_out_date)}";
     }
     log_event(session, "red", msg, child["id"]);
+    osp_put_branch(child);
+    osp_put_attack(session.attacks[-1]);
+    osp_put_evidence(child["id"], bundle);
     return child;
 }
 
@@ -659,6 +726,7 @@ def arbiter(session: Session) {
         "baseline_foil": session.baseline
     };
     log_event(session, "arbiter", f"Recommended {best_id}: {date_line}", best_id);
+    osp_put_memo(session.memo);
 }
 
 def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, run_baseline: bool = True, company_overrides: dict = {}) -> dict {

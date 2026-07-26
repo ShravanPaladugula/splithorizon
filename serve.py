@@ -30,9 +30,15 @@ JAC_HOME = os.environ.get("JAC_HOME", "/tmp/jac_home")
 
 def jac_env() -> dict:
     env = os.environ.copy()
-    env["HOME"] = JAC_HOME
+    # Fresh graph memory per process so walkers only see this run's OSP nodes.
+    run_home = ROOT / ".jac" / "run_home"
+    run_home.mkdir(parents=True, exist_ok=True)
+    env["HOME"] = str(run_home)
+    env["JAC_HOME"] = str(run_home)
     env["PATH"] = str(Path(JAC_BIN).parent) + os.pathsep + env.get("PATH", "")
-    env.setdefault("SPLITHORIZON_LIVE", "0")
+    # Demo/default: offline cache unless .env set SPLITHORIZON_LIVE=1
+    if "SPLITHORIZON_LIVE" not in env:
+        env["SPLITHORIZON_LIVE"] = "0"
     return env
 
 
@@ -103,7 +109,7 @@ def run_engine(
     company = company or {}
     runner = ROOT / "run_once.jac"
     runner.write_text(
-        "include engine;\ninclude fixtures;\nimport json;\nimport os;\n\n"
+        "include agents;\ninclude fixtures;\nimport json;\nimport os;\n\n"
         "with entry {\n"
         f"    fid = {json.dumps(fixture_id)};\n"
         f"    text = {json.dumps(proposal)};\n"
@@ -112,11 +118,13 @@ def run_engine(
         "        fx = get_fixture(fid);\n"
         "        if fx { text = str(fx[\"proposal\"]); }\n"
         "    }\n"
-        f"    result = run_protocol(text, fid, {int(rounds)}, {str(baseline)}, company);\n"
-        "    os.makedirs(\"out\", exist_ok=True);\n"
-        "    with open(\"out/last_run.json\", \"w\") as f {\n"
-        "        json.dump(result, f, indent=2);\n"
-        "    }\n"
+        "    root spawn ProtocolWalker(\n"
+        "        proposal=text,\n"
+        "        fixture_id=fid,\n"
+        f"        rounds={int(rounds)},\n"
+        f"        baseline={str(baseline)},\n"
+        "        company_json=json.dumps(company)\n"
+        "    );\n"
         "    print(\"OK\");\n"
         "}\n"
     )

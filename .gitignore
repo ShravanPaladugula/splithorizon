@@ -9,6 +9,7 @@ __pycache__/
 jac_setup.log
 out_run.log
 run_once.jac
+run_tmp.jac
+pw_test.jac
 .venv/
 *.log
-run_tmp.jac

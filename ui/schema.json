@@ -99,24 +99,28 @@
   ],
   "walkers": [
     {
+      "id": "ProtocolWalker",
+      "blurb": "Orchestrates run_protocol, materializes OSP, spawns role walkers."
+    },
+    {
       "id": "SeedWorldWalker",
-      "blurb": "Load CompanyState \u2192 root Branch."
+      "blurb": "Visits CompanyState + Tool after seed."
     },
     {
       "id": "BlueWalker",
-      "blurb": "Propose effect tags (no figures)."
+      "blurb": "Visits Blue Branch futures (effect tags; verifiers own numbers)."
     },
     {
       "id": "RedWalker",
-      "blurb": "Attack with qualitative claims."
+      "blurb": "Visits Red Branch + Attack nodes."
     },
     {
       "id": "ScoreWalker",
-      "blurb": "Survival rank = runway + milestone hit."
+      "blurb": "Survival rank = runway months + milestone hit."
     },
     {
       "id": "ArbiterWalker",
-      "blurb": "Pick survivor; emit date_line."
+      "blurb": "Reads Memo date_line; recommended survivor."
     }
   ]
 }

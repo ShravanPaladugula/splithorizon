@@ -1,4 +1,4 @@
-include engine;
+include agents;
 include fixtures;
 import json;
 import os;
@@ -14,10 +14,15 @@ walker run_engine {
             fx = get_fixture(self.fixture_id);
             if fx { text = str(fx["proposal"]); }
         }
-        result = run_protocol(text, self.fixture_id, self.rounds, self.baseline);
-        report result;
-        os.makedirs("out", exist_ok=True);
-        with open("out/last_run.json", "w") as f { json.dump(result, f, indent=2); }
+        result = here spawn ProtocolWalker(
+            proposal=text,
+            fixture_id=self.fixture_id,
+            rounds=self.rounds,
+            baseline=self.baseline,
+            company_json="{}"
+        );
+        data = result.reports[0] if result.reports else {};
+        report data;
     }
 }
 
@@ -28,4 +33,6 @@ with entry {
     memo = data.get("memo", {});
     print("DATE:", memo.get("date_line", ""));
     print("Recommended:", memo.get("recommended_branch_id", ""));
+    print("Jac:", data.get("jac_runtime", ""));
+    print("Walker reports:", len(data.get("walker_trace", [])));
 }
