@@ -3,72 +3,44 @@
     {
       "id": "CompanyState",
       "role": "core",
-      "blurb": "Cash, burn, MRR, headcount, milestone date \u2014 the spine inputs.",
-      "fields": [
-        "cash",
-        "monthly_burn",
-        "mrr",
-        "growth_rate",
-        "headcount",
-        "milestone",
-        "milestone_date",
-        "as_of"
-      ]
+      "blurb": "Cash, burn, MRR, headcount, milestone date — the spine inputs.",
+      "fields": ["cash", "monthly_burn", "mrr", "growth_rate", "headcount", "milestone", "milestone_date", "as_of"],
+      "pipeline": ["seed"]
     },
     {
       "id": "Branch",
       "role": "core",
-      "blurb": "A future: move + copied CompanyState + alive.",
-      "fields": [
-        "branch_id",
-        "move",
-        "alive",
-        "cash_out_date",
-        "runway_months",
-        "milestone_hit",
-        "kill_reason"
-      ]
+      "blurb": "A future: move + copied CompanyState + alive/kill.",
+      "fields": ["branch_id", "move", "alive", "cash_out_date", "runway_months", "milestone_hit", "kill_reason", "side_created"],
+      "pipeline": ["seed", "blue", "red", "branch", "arbiter"]
     },
     {
       "id": "Attack",
       "role": "red",
-      "blurb": "Red claim \u2014 qualitative; verifiers supply numbers.",
-      "fields": [
-        "claim",
-        "severity",
-        "check_hint"
-      ]
+      "blurb": "Red claim — qualitative; verifiers supply numbers.",
+      "fields": ["attack_id", "claim", "severity", "check_hint", "round_no"],
+      "pipeline": ["red"]
     },
     {
       "id": "Evidence",
       "role": "tool",
       "blurb": "Deterministic check result tied to a branch.",
-      "fields": [
-        "check",
-        "value",
-        "passed",
-        "module"
-      ]
+      "fields": ["evidence_id", "check", "value", "passed", "module"],
+      "pipeline": ["tools", "branch"]
     },
     {
       "id": "Tool",
       "role": "tool",
-      "blurb": "VerifyState / CashOutDate visit targets.",
-      "fields": [
-        "name",
-        "schema_desc"
-      ]
+      "blurb": "VerifyState / CashOutDate — walkers visit these; code does the math.",
+      "fields": ["name", "schema_desc"],
+      "pipeline": ["tools"]
     },
     {
       "id": "Memo",
       "role": "core",
       "blurb": "Arbiter write-up with date_line + decomposition (no confidence %).",
-      "fields": [
-        "recommended_branch_id",
-        "date_line",
-        "prose",
-        "kill_shots"
-      ]
+      "fields": ["recommended_branch_id", "date_line", "prose", "kill_shots", "open_risks", "dissent"],
+      "pipeline": ["arbiter"]
     }
   ],
   "edges": [
@@ -88,39 +60,57 @@
       "id": "attacks",
       "from": "Attack",
       "to": "Branch",
-      "blurb": "Red attacks a plan."
+      "blurb": "Red attacks a plan branch."
     },
     {
       "id": "verified_by",
       "from": "Branch",
       "to": "Evidence",
-      "blurb": "Branch grounded by verifier."
+      "blurb": "Branch grounded by verifier evidence."
+    },
+    {
+      "id": "has_tool",
+      "from": "Branch",
+      "to": "Tool",
+      "blurb": "Branch verified via Tool visit."
     }
   ],
   "walkers": [
     {
       "id": "ProtocolWalker",
-      "blurb": "Orchestrates run_protocol, materializes OSP, spawns role walkers."
+      "blurb": "Orchestrates run_protocol, materializes OSP, spawns role walkers.",
+      "visits": ["CompanyState", "Branch", "Attack", "Evidence", "Memo", "Tool"],
+      "pipeline": ["seed", "blue", "red", "tools", "branch", "arbiter"]
     },
     {
       "id": "SeedWorldWalker",
-      "blurb": "Visits CompanyState + Tool after seed."
+      "blurb": "Visits CompanyState + Tool after seed.",
+      "visits": ["CompanyState", "Tool"],
+      "pipeline": ["seed"]
     },
     {
       "id": "BlueWalker",
-      "blurb": "Visits Blue Branch futures (effect tags; verifiers own numbers)."
+      "blurb": "Visits Blue Branch futures (effect tags; verifiers own numbers).",
+      "visits": ["Branch", "Tool", "Evidence"],
+      "pipeline": ["blue", "branch"]
     },
     {
       "id": "RedWalker",
-      "blurb": "Visits Red Branch + Attack nodes."
+      "blurb": "Visits Red Branch + Attack nodes.",
+      "visits": ["Branch", "Attack", "Tool"],
+      "pipeline": ["red"]
     },
     {
       "id": "ScoreWalker",
-      "blurb": "Survival rank = runway months + milestone hit."
+      "blurb": "Survival rank = runway months + milestone hit.",
+      "visits": ["Branch"],
+      "pipeline": ["branch", "arbiter"]
     },
     {
       "id": "ArbiterWalker",
-      "blurb": "Reads Memo date_line; recommended survivor."
+      "blurb": "Reads Memo date_line; recommended survivor.",
+      "visits": ["Branch", "Memo"],
+      "pipeline": ["arbiter"]
     }
   ]
 }

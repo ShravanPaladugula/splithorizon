@@ -378,41 +378,282 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
   });
 
+  const PIPELINE_FOCUS = {
+    seed: ["CompanyState", "Branch", "Tool", "SeedWorldWalker", "ProtocolWalker"],
+    blue: ["Branch", "Tool", "Evidence", "BlueWalker", "ProtocolWalker"],
+    red: ["Branch", "Attack", "Tool", "RedWalker", "ProtocolWalker"],
+    tools: ["Tool", "Evidence", "verified_by", "has_tool", "ProtocolWalker"],
+    branch: ["Branch", "derives_from", "leads_to", "Evidence", "ScoreWalker", "BlueWalker"],
+    arbiter: ["Memo", "Branch", "ArbiterWalker", "ScoreWalker", "ProtocolWalker"],
+  };
+
+  let schemaSelection = null;
+  let schemaFilter = "all";
+  let schemaPipelineFocus = null;
+  let ospReady = false;
+
+  function liveCounts() {
+    if (!runData) return {};
+    return {
+      CompanyState: runData.company ? 1 : 0,
+      Branch: (runData.branches || []).length,
+      Attack: (runData.attacks || []).length,
+      Evidence: (runData.evidence_log || []).length,
+      Tool: 2,
+      Memo: runData.memo ? 1 : 0,
+    };
+  }
+
   function initSchemaRail() {
     const explain = $("schema-explain");
     document.querySelectorAll(".schema-node").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.querySelectorAll(".schema-node").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        explain.textContent = SCHEMA_COPY[btn.dataset.schema] || "";
+        const key = btn.dataset.schema;
+        explain.textContent = SCHEMA_COPY[key] || "";
+        schemaPipelineFocus = key;
+        renderOspMap();
+        const focusIds = PIPELINE_FOCUS[key] || [];
+        if (focusIds[0]) selectSchemaItem(focusIds[0]);
+        $("osp-stage")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    });
+    document.querySelectorAll(".schema-filter").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".schema-filter").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        schemaFilter = btn.dataset.filter;
+        renderOspMap();
       });
     });
   }
+
   function lightSchemaFromEvent(kind) {
-    const map = { seed: "seed", blue: "blue", red: "red", tool: "tools", arbiter: "arbiter" };
+    const map = { seed: "seed", blue: "blue", red: "red", tool: "tools", arbiter: "arbiter", walker: "branch" };
     const key = map[kind];
     document.querySelectorAll(".schema-node").forEach((b) => b.classList.toggle("lit", key && b.dataset.schema === key));
     if (key && SCHEMA_COPY[key]) $("schema-explain").textContent = SCHEMA_COPY[key];
+    if (key) {
+      schemaPipelineFocus = key;
+      if (ospReady) renderOspMap();
+    }
   }
+
+  function schemaCatalog() {
+    const schema = window.SPLIT_SCHEMA || {};
+    const items = [];
+    (schema.nodes || []).forEach((n) => items.push({ ...n, kind: "node" }));
+    (schema.edges || []).forEach((e) => items.push({ ...e, kind: "edge" }));
+    (schema.walkers || []).forEach((w) => items.push({ ...w, kind: "walker" }));
+    return { schema, items };
+  }
+
+  function selectSchemaItem(id) {
+    const { items, schema } = schemaCatalog();
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+    schemaSelection = id;
+    renderSchemaDetail(item, schema);
+    renderOspMap();
+  }
+
+  function renderSchemaDetail(item, schema) {
+    const detail = $("schema-detail");
+    if (!detail || !item) return;
+    const counts = liveCounts();
+    const count = counts[item.id];
+    let html = `<div class="sd-kicker">${escapeHtml(item.kind)}</div>`;
+    html += `<h3 class="sd-title">${escapeHtml(item.id)}</h3>`;
+    html += `<p>${escapeHtml(item.blurb || "")}</p>`;
+    if (count != null) {
+      html += `<p class="sd-live mono">Live this run: <strong>${count}</strong> instance${count === 1 ? "" : "s"}</p>`;
+    }
+    if (item.fields?.length) {
+      html += `<h4>Fields</h4><ul class="sd-fields">${item.fields.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join("")}</ul>`;
+    }
+    if (item.kind === "edge") {
+      html += `<p class="sd-edge mono">${escapeHtml(item.from)} → ${escapeHtml(item.to)}</p>`;
+    }
+    if (item.kind === "walker" && item.visits?.length) {
+      html += `<h4>Visits</h4><div class="sd-pills">${item.visits.map((v) => `<button type="button" class="sd-pill" data-jump="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join("")}</div>`;
+    }
+    if (item.kind === "node") {
+      const inbound = (schema.edges || []).filter((e) => e.to === item.id);
+      const outbound = (schema.edges || []).filter((e) => e.from === item.id);
+      const walkers = (schema.walkers || []).filter((w) => (w.visits || []).includes(item.id));
+      if (outbound.length) {
+        html += `<h4>Outgoing edges</h4><div class="sd-pills">${outbound.map((e) => `<button type="button" class="sd-pill" data-jump="${escapeHtml(e.id)}">${escapeHtml(e.id)} → ${escapeHtml(e.to)}</button>`).join("")}</div>`;
+      }
+      if (inbound.length) {
+        html += `<h4>Incoming edges</h4><div class="sd-pills">${inbound.map((e) => `<button type="button" class="sd-pill" data-jump="${escapeHtml(e.id)}">${escapeHtml(e.from)} → ${escapeHtml(e.id)}</button>`).join("")}</div>`;
+      }
+      if (walkers.length) {
+        html += `<h4>Walkers that visit</h4><div class="sd-pills">${walkers.map((w) => `<button type="button" class="sd-pill walker" data-jump="${escapeHtml(w.id)}">${escapeHtml(w.id)}</button>`).join("")}</div>`;
+      }
+    }
+    if (item.pipeline?.length) {
+      html += `<h4>Pipeline</h4><div class="sd-pills">${item.pipeline.map((p) => `<span class="sd-pill dim">${escapeHtml(p)}</span>`).join("")}</div>`;
+    }
+    detail.innerHTML = html;
+    detail.querySelectorAll("[data-jump]").forEach((btn) => {
+      btn.addEventListener("click", () => selectSchemaItem(btn.dataset.jump));
+    });
+  }
+
   function renderTypeChips() {
-    const root = $("schema-graph"), detail = $("schema-detail"), schema = window.SPLIT_SCHEMA;
-    if (!schema || !root) return;
-    root.innerHTML = "";
-    const add = (item, kind) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = `schema-chip ${kind}`;
-      btn.textContent = item.id;
-      btn.addEventListener("click", () => {
-        root.querySelectorAll(".schema-chip").forEach((c) => c.classList.remove("active"));
-        btn.classList.add("active");
-        detail.innerHTML = `<strong>${escapeHtml(item.id)}</strong><p>${escapeHtml(item.blurb || "")}</p>`;
+    renderOspMap();
+  }
+
+  function renderOspMap() {
+    const stage = $("osp-stage");
+    const svgEl = $("schema-svg");
+    if (!stage || !svgEl || typeof d3 === "undefined") return;
+    const { schema, items } = schemaCatalog();
+    if (!items.length) return;
+
+    const focusSet = schemaPipelineFocus ? new Set(PIPELINE_FOCUS[schemaPipelineFocus] || []) : null;
+    const visible = items.filter((it) => {
+      if (schemaFilter === "nodes" && it.kind !== "node") return false;
+      if (schemaFilter === "edges" && it.kind !== "edge") return false;
+      if (schemaFilter === "walkers" && it.kind !== "walker") return false;
+      if (focusSet) {
+        if (it.kind === "edge") return focusSet.has(it.from) && focusSet.has(it.to);
+        return focusSet.has(it.id);
+      }
+      return true;
+    });
+
+    const width = stage.clientWidth || 420;
+    const height = Math.max(280, Math.min(420, 160 + visible.length * 28));
+    const svg = d3.select(svgEl);
+    svg.attr("viewBox", `0 0 ${width} ${height}`).attr("width", "100%").attr("height", height);
+
+    // Layout: nodes left/center, walkers right, edges as dashed links
+    const nodeItems = visible.filter((v) => v.kind === "node");
+    const walkerItems = visible.filter((v) => v.kind === "walker");
+    const edgeItems = visible.filter((v) => v.kind === "edge");
+
+    const layout = new Map();
+    nodeItems.forEach((n, i) => {
+      const col = n.role === "tool" || n.role === "red" ? 1 : 0;
+      const peers = nodeItems.filter((x) => (x.role === "tool" || x.role === "red") === (col === 1));
+      const idx = peers.indexOf(n);
+      layout.set(n.id, {
+        x: col === 0 ? width * 0.22 : width * 0.48,
+        y: 48 + idx * ((height - 70) / Math.max(peers.length, 1)),
+        kind: "node",
+        role: n.role,
+        raw: n,
       });
-      root.appendChild(btn);
+    });
+    walkerItems.forEach((w, i) => {
+      layout.set(w.id, {
+        x: width * 0.78,
+        y: 40 + i * ((height - 60) / Math.max(walkerItems.length, 1)),
+        kind: "walker",
+        role: "walker",
+        raw: w,
+      });
+    });
+    // Edge labels sit between endpoints
+    edgeItems.forEach((e) => {
+      const a = layout.get(e.from);
+      const b = layout.get(e.to);
+      if (!a || !b) return;
+      layout.set(e.id, {
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2 - 12,
+        kind: "edge",
+        role: "edge",
+        raw: e,
+        from: a,
+        to: b,
+      });
+    });
+
+    svg.selectAll("*").remove();
+    const g = svg.append("g").attr("class", "osp-viewport");
+
+    // Draw edge paths first
+    edgeItems.forEach((e) => {
+      const a = layout.get(e.from);
+      const b = layout.get(e.to);
+      if (!a || !b) return;
+      const midX = (a.x + b.x) / 2;
+      const selected = schemaSelection === e.id;
+      g.append("path")
+        .attr("class", `osp-link ${selected ? "selected" : ""}`)
+        .attr("d", `M${a.x},${a.y} C${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}`)
+        .attr("fill", "none");
+    });
+
+    // Walker visit links (subtle)
+    walkerItems.forEach((w) => {
+      const wPos = layout.get(w.id);
+      (w.visits || []).forEach((vid) => {
+        const t = layout.get(vid);
+        if (!wPos || !t) return;
+        g.append("path")
+          .attr("class", "osp-visit")
+          .attr("d", `M${wPos.x},${wPos.y} L${t.x},${t.y}`)
+          .attr("fill", "none");
+      });
+    });
+
+    const roleColor = (role, kind) => {
+      if (kind === "walker") return "#0d6e6e";
+      if (kind === "edge") return "#c9a227";
+      if (role === "red") return "#e85d04";
+      if (role === "tool") return "#1b3a4b";
+      return "#0c1218";
     };
-    (schema.nodes || []).forEach((n) => add(n, "node"));
-    (schema.edges || []).forEach((e) => add(e, "edge"));
-    (schema.walkers || []).forEach((w) => add(w, "walker"));
+
+    const nodes = [...layout.entries()].map(([id, pos]) => ({ id, ...pos }));
+    const nodeG = g
+      .selectAll("g.osp-node")
+      .data(nodes, (d) => d.id)
+      .join("g")
+      .attr("class", (d) => `osp-node ${d.kind} ${schemaSelection === d.id ? "selected" : ""}`)
+      .attr("transform", (d) => `translate(${d.x},${d.y})`)
+      .style("cursor", "pointer")
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        selectSchemaItem(d.id);
+      });
+
+    nodeG
+      .append("circle")
+      .attr("r", (d) => (d.kind === "edge" ? 10 : d.kind === "walker" ? 14 : 16))
+      .attr("fill", (d) => roleColor(d.role, d.kind))
+      .attr("stroke", (d) => (schemaSelection === d.id ? "#c9a227" : "#fff"))
+      .attr("stroke-width", (d) => (schemaSelection === d.id ? 3 : 1.5));
+
+    nodeG
+      .append("text")
+      .attr("class", "osp-label")
+      .attr("text-anchor", "middle")
+      .attr("y", (d) => (d.kind === "edge" ? -14 : -22))
+      .text((d) => d.id);
+
+    const counts = liveCounts();
+    nodeG
+      .filter((d) => d.kind === "node" && counts[d.id] != null)
+      .append("text")
+      .attr("class", "osp-count")
+      .attr("text-anchor", "middle")
+      .attr("y", 5)
+      .attr("fill", "#fff")
+      .attr("font-size", "10")
+      .text((d) => counts[d.id]);
+
+    ospReady = true;
+
+    // Re-render detail if selection still visible
+    if (schemaSelection) {
+      const still = items.find((x) => x.id === schemaSelection);
+      if (still) renderSchemaDetail(still, schema);
+    }
   }
 
   function colorFor(side, alive) {
@@ -726,6 +967,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     renderKillCallout(data);
     renderMemo(data);
     renderTimeline(data);
+    renderOspMap();
     setEventIndex(0);
     startPlay();
   }
