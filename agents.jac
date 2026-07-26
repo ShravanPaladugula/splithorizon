@@ -170,14 +170,19 @@ walker ProtocolWalker {
     has rounds: int = 3;
     has baseline: bool = True;
     has company_json: str = "{}";
+    has areas_json: str = "[]";
 
     can start with Root entry {
         company = {};
+        areas = [];
         if self.company_json {
             try { company = json.loads(self.company_json); } except Exception { company = {}; }
         }
+        if self.areas_json {
+            try { areas = json.loads(self.areas_json); } except Exception { areas = []; }
+        }
         result = run_protocol(
-            self.proposal, self.fixture_id, self.rounds, self.baseline, company
+            self.proposal, self.fixture_id, self.rounds, self.baseline, company, areas
         );
         # Materialize OSP nodes for this run (Jac graph memory + schema showcase).
         attach_osp_from_result(result);
@@ -200,6 +205,16 @@ walker ProtocolWalker {
             }
         }
         memo = result.get("memo", {});
+        desk_list = result.get("areas", []) or [];
+        desk_walkers: list = [];
+        for d in desk_list {
+            name = str(d);
+            if name == "finance" { name = "Finance"; }
+            elif name == "management" { name = "Management"; }
+            elif name == "launch" { name = "Launch"; }
+            elif name == "publicity" { name = "Publicity"; }
+            desk_walkers.append({"walker": f"{name}DeskWalker", "desk": str(d), "pair": f"{d} Blue/Red"});
+        }
         walker_trace = [
             {"walker": "SeedWorldWalker", "node": "CompanyState", "company": str((result.get("company") or {}).get("name", ""))},
             {"walker": "BlueWalker", "blue_branches": blue_n, "killed": blue_kill},
@@ -210,14 +225,18 @@ walker ProtocolWalker {
                 "recommended": memo.get("recommended_branch_id", ""),
                 "date_line": memo.get("date_line", "")
             },
-            {"walker": "ProtocolWalker", "evidence": len(result.get("evidence_log", [])), "osp": "Branch+Attack+Evidence+Memo"}
+            {"walker": "ProtocolWalker", "evidence": len(result.get("evidence_log", [])), "osp": "Branch+Attack+Evidence+Memo", "desks": desk_list}
         ];
+        for dw in desk_walkers {
+            walker_trace.append(dw);
+        }
         result["walker_trace"] = walker_trace;
-        result["jac_runtime"] = "walkers+osp+by_llm+verifiers";
+        result["jac_runtime"] = "walkers+osp+desks+verifiers";
         events = result.get("events", []);
+        desk_msg = ", ".join([str(x) for x in desk_list]) if desk_list else "general";
         events.append({
             "kind": "walker",
-            "message": f"Jac walkers — Blue {blue_n} / Red {red_n} / kills {blue_kill + red_kill} / evidence {len(result.get('evidence_log', []))}",
+            "message": f"Jac desks [{desk_msg}] — Blue {blue_n} / Red {red_n} / kills {blue_kill + red_kill}",
             "branch_id": ""
         });
         result["events"] = events;

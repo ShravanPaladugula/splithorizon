@@ -1,10 +1,36 @@
-# Adaptive founder intake — classify plan, ask what's missing for a survival sim.
-# Stays on the masterplan spine: cash-out date vs milestone. Three modules only.
+# Adaptive founder intake — pick a consult desk, then ask what's missing for survival sim.
+# Spine unchanged: cash-out date vs milestone.
+# Desks: finance · management · launch · publicity
 
 include drafts;
 
 import json;
 import os;
+
+glob CONSULT_AREAS: list = ["finance", "management", "launch", "publicity"];
+
+glob AREA_META: dict = {
+    "finance": {
+        "label": "Finance",
+        "blurb": "Raise, burn, pricing, MRR, runway",
+        "agents": "Finance Blue / Finance Red"
+    },
+    "management": {
+        "label": "Management",
+        "blurb": "Hiring, headcount, contractors, infra",
+        "agents": "Management Blue / Management Red"
+    },
+    "launch": {
+        "label": "Launch",
+        "blurb": "Ship dates, staged release, product go-live",
+        "agents": "Launch Blue / Launch Red"
+    },
+    "publicity": {
+        "label": "Publicity",
+        "blurb": "Ads, campaigns, influencers, GTM buzz",
+        "agents": "Publicity Blue / Publicity Red"
+    }
+};
 
 glob QUESTION_BANK: dict = {
     "cash": {
@@ -63,21 +89,22 @@ glob QUESTION_BANK: dict = {
         "field": "milestone_date",
         "type": "date"
     },
-    "hire_shape": {
-        "id": "hire_shape",
-        "prompt": "Hiring shape — what's the move you're tempted to make?",
+    "management_shape": {
+        "id": "management_shape",
+        "prompt": "Management desk — what's the org move you're tempted to make?",
         "placeholder": "",
-        "field": "hire_shape",
+        "field": "management_shape",
         "type": "choice",
         "choices": [
             {"id": "two_eng", "label": "Hire two full-time engineers now"},
             {"id": "one_plus", "label": "One engineer + a contractor"},
+            {"id": "infra", "label": "Invest in infra / tools, hold headcount"},
             {"id": "hold", "label": "Hold hiring / stay lean"}
         ]
     },
     "launch_shape": {
         "id": "launch_shape",
-        "prompt": "Launch shape — how are you thinking about shipping?",
+        "prompt": "Launch desk — how are you thinking about shipping?",
         "placeholder": "",
         "field": "launch_shape",
         "type": "choice",
@@ -87,16 +114,30 @@ glob QUESTION_BANK: dict = {
             {"id": "delay", "label": "Delay the launch if needed"}
         ]
     },
-    "raise_shape": {
-        "id": "raise_shape",
-        "prompt": "Fundraising posture?",
+    "finance_shape": {
+        "id": "finance_shape",
+        "prompt": "Finance desk — what's the money move?",
         "placeholder": "",
-        "field": "raise_shape",
+        "field": "finance_shape",
         "type": "choice",
         "choices": [
             {"id": "raise_soon", "label": "Start raising soon"},
             {"id": "extend", "label": "Extend runway / cut burn first"},
-            {"id": "none", "label": "Not raising this cycle"}
+            {"id": "price_up", "label": "Raise prices / push MRR"},
+            {"id": "none", "label": "Hold cash posture this cycle"}
+        ]
+    },
+    "publicity_shape": {
+        "id": "publicity_shape",
+        "prompt": "Publicity desk — how are you going to market this?",
+        "placeholder": "",
+        "field": "publicity_shape",
+        "type": "choice",
+        "choices": [
+            {"id": "paid", "label": "Paid ads / paid acquisition push"},
+            {"id": "influencer", "label": "Influencer / creator partnerships"},
+            {"id": "organic", "label": "Organic / content / community first"},
+            {"id": "hold_mkt", "label": "Hold marketing spend"}
         ]
     }
 };
@@ -105,15 +146,33 @@ def _lower(s: str) -> str {
     return str(s).lower();
 }
 
+def normalize_areas(raw: list) -> list {
+    # Map legacy module ids + aliases onto the four consult desks.
+    out: list = [];
+    for m in raw {
+        a = str(m).lower().strip();
+        if a in ["hire", "hiring", "ops", "org"] { a = "management"; }
+        elif a in ["runway", "money", "fundraising"] { a = "finance"; }
+        elif a in ["marketing", "ads", "pr", "growth"] { a = "publicity"; }
+        elif a in ["ship", "product", "release"] { a = "launch"; }
+        if a in CONSULT_AREAS and a not in out {
+            out.append(a);
+        }
+    }
+    return out;
+}
+
 def classify_modules_keywords(plan: str) -> list {
     t = _lower(plan);
     mods: list = [];
-    hire_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team", "fire", "layoff"];
-    launch_kw = ["launch", "ship", "release", "go-live", "golive", "market", "expand", "product", "campaign", "customer", "ad ", "ads", "advertis", "influencer", "signup", "sales", "outbound", "gtm", "growth"];
-    runway_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "buy", "invest", "office", "relocat"];
-    for k in hire_kw {
+    management_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team", "fire", "layoff", "infra", "infrastructure", "office", "relocat"];
+    launch_kw = ["launch", "ship", "release", "go-live", "golive", "product", "mvp", "beta"];
+    publicity_kw = ["ad ", "ads", "advertis", "influencer", "campaign", "marketing", "publicity", "pr ", "brand", "gtm", "content", "seo", "viral"];
+    # Equipment buys are finance/capex — even if the UI desk was set to management.
+    finance_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "mrr", "revenue", "invest", "budget", "buy", "purchase", "printer", "equipment", "capex", "machine"];
+    for k in management_kw {
         if k in t {
-            if "hire" not in mods { mods.append("hire"); }
+            if "management" not in mods { mods.append("management"); }
             break;
         }
     }
@@ -123,29 +182,28 @@ def classify_modules_keywords(plan: str) -> list {
             break;
         }
     }
-    for k in runway_kw {
+    for k in publicity_kw {
         if k in t {
-            if "runway" not in mods { mods.append("runway"); }
+            if "publicity" not in mods { mods.append("publicity"); }
+            break;
+        }
+    }
+    for k in finance_kw {
+        if k in t {
+            if "finance" not in mods { mods.append("finance"); }
             break;
         }
     }
     if not mods {
-        # Unknown decision — survival is always the spine; don't pretend it's hiring.
-        mods = ["runway"];
+        mods = ["finance"];
     }
     return mods;
 }
 
 def classify_modules(plan: str) -> dict {
-    # LLM classification when live (understands arbitrary plans); keywords otherwise.
     restated = "";
     cls = classify_plan(plan);
-    mods: list = [];
-    for m in cls.modules {
-        if str(m) in ["hire", "launch", "runway"] and str(m) not in mods {
-            mods.append(str(m));
-        }
-    }
+    mods = normalize_areas(cls.modules);
     if mods {
         restated = cls.restated;
     } else {
@@ -157,8 +215,6 @@ def classify_modules(plan: str) -> dict {
 glob DEMO_PLAN_KW: list = ["two engineer", "2 engineer", "october launch"];
 
 def pick_fixture(modules: list, plan: str) -> str {
-    # ONLY the canned hire×launch demo uses fixture caches.
-    # Every other founder plan is "custom" so Blue/Red follow THAT scenario.
     t = _lower(plan);
     for k in DEMO_PLAN_KW {
         if k in t { return "interlock"; }
@@ -177,8 +233,12 @@ def _answered(answers: dict, field: str) -> bool {
 def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> dict {
     restated = "";
     if modules_hint {
-        # Already classified on the first call — don't re-run the LLM per answer.
-        modules = modules_hint;
+        modules = normalize_areas(modules_hint);
+        if not modules {
+            cls = classify_modules(plan);
+            modules = cls["modules"];
+            restated = str(cls["restated"]);
+        }
     } else {
         cls = classify_modules(plan);
         modules = cls["modules"];
@@ -186,9 +246,10 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
     }
     fixture_id = pick_fixture(modules, plan);
     needed: list = ["describe", "cash", "burn", "mrr", "growth", "headcount", "milestone", "milestone_date"];
-    if "hire" in modules { needed.append("hire_shape"); }
+    if "management" in modules { needed.append("management_shape"); }
     if "launch" in modules { needed.append("launch_shape"); }
-    if "runway" in modules { needed.append("raise_shape"); }
+    if "finance" in modules { needed.append("finance_shape"); }
+    if "publicity" in modules { needed.append("publicity_shape"); }
 
     questions: list = [];
     for qid in needed {
@@ -197,40 +258,78 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
         if not _answered(answers, field) {
             questions.append(meta);
         }
-        # Ask at most 1 new question per turn for a calm walkthrough
         if len(questions) >= 1 {
             break;
         }
     }
 
-    # Statics done → one adaptive round: Gemini writes plan-specific follow-ups,
-    # the frontend asks them one at a time, then marks _extra_done.
     extra_questions: list = [];
-    if not questions and fixture_id == "custom" and not _answered(answers, "_extra_done") {
+    if not questions and not _answered(answers, "_extra_done") {
         known_parts: list = [];
         for k in answers.keys() {
             known_parts.append(f"{k}: {answers[k]}");
         }
         qset = intake_followups(plan, "; ".join(known_parts));
         for q in qset.questions[:3] {
+            field = f"extra_{q.id}";
+            if _answered(answers, field) {
+                continue;
+            }
             if q.prompt and str(q.id) {
                 extra_questions.append({
-                    "id": f"extra_{q.id}",
+                    "id": field,
                     "prompt": str(q.prompt),
                     "placeholder": str(q.placeholder),
-                    "field": f"extra_{q.id}",
+                    "field": field,
                     "type": "number" if str(q.qtype) == "number" else "text"
                 });
             }
         }
+        if not extra_questions {
+            extra_questions = [
+                {
+                    "id": "extra_plan_cash",
+                    "prompt": "How much cash does this plan spend in the next 90 days (USD)?",
+                    "placeholder": "e.g. 40000",
+                    "field": "extra_plan_cash",
+                    "type": "number"
+                },
+                {
+                    "id": "extra_burn_delta",
+                    "prompt": "What does it do to monthly burn after that (USD / month, negative = cut)?",
+                    "placeholder": "e.g. 10000",
+                    "field": "extra_burn_delta",
+                    "type": "number"
+                },
+                {
+                    "id": "extra_success_signal",
+                    "prompt": "What early signal tells you the plan is working?",
+                    "placeholder": "e.g. +15% MoM MRR in 60 days",
+                    "field": "extra_success_signal",
+                    "type": "text"
+                }
+            ];
+        }
     }
 
-    ready = len(questions) == 0 and len(extra_questions) == 0;
+    ready = len(questions) == 0 and (len(extra_questions) == 0) and _answered(answers, "_extra_done");
     proposal = build_proposal(plan, answers, modules) if ready else "";
     company = build_company_overrides(answers);
+    desks: list = [];
+    for a in modules {
+        meta = AREA_META.get(a, {});
+        desks.append({
+            "id": a,
+            "label": str(meta.get("label", a)),
+            "blurb": str(meta.get("blurb", "")),
+            "agents": str(meta.get("agents", ""))
+        });
+    }
 
     return {
         "modules": modules,
+        "areas": modules,
+        "desks": desks,
         "restated": restated,
         "fixture_id": fixture_id,
         "questions": questions,
@@ -252,42 +351,70 @@ def build_company_overrides(answers: dict) -> dict {
     if _answered(answers, "growth") { out["growth_rate"] = float(answers["growth"]) / 100.0; }
     if _answered(answers, "milestone") { out["milestone"] = str(answers["milestone"]); }
     if _answered(answers, "milestone_date") { out["milestone_date"] = str(answers["milestone_date"]); }
+    if _answered(answers, "biz_name") { out["name"] = str(answers["biz_name"]); }
+    if _answered(answers, "website") { out["website"] = str(answers["website"]); }
+    if _answered(answers, "summary") { out["summary"] = str(answers["summary"]); }
+    if _answered(answers, "describe") { out["describe"] = str(answers["describe"]); }
+    if _answered(answers, "extra_plan_cash") { out["plan_cash"] = float(answers["extra_plan_cash"]); }
+    elif _answered(answers, "plan_cash") { out["plan_cash"] = float(answers["plan_cash"]); }
+    if _answered(answers, "extra_burn_delta") { out["plan_burn_delta"] = float(answers["extra_burn_delta"]); }
+    elif _answered(answers, "burn_delta") { out["plan_burn_delta"] = float(answers["burn_delta"]); }
     return out;
 }
 
 def build_proposal(plan: str, answers: dict, modules: list) -> str {
-    hire = str(answers.get("hire_shape", ""));
+    mgmt = str(answers.get("management_shape", answers.get("hire_shape", "")));
     launch = str(answers.get("launch_shape", ""));
-    raise_s = str(answers.get("raise_shape", ""));
+    fin = str(answers.get("finance_shape", answers.get("raise_shape", "")));
+    pub = str(answers.get("publicity_shape", ""));
     ms = str(answers.get("milestone", "milestone"));
     md = str(answers.get("milestone_date", ""));
     lines: list = [];
     lines.append(f"DECISION: {plan}");
     lines.append("");
+    if _answered(answers, "biz_name") {
+        lines.append(f"Company: {answers['biz_name']}.");
+    }
     if _answered(answers, "describe") {
         lines.append(f"Business: {answers['describe']}.");
     }
-    lines.append(f"Modules in play: {', '.join(modules)}.");
-    if hire {
-        label = hire;
-        if hire == "two_eng" { label = "Hire two full-time engineers now"; }
-        elif hire == "one_plus" { label = "One engineer + contractor"; }
-        elif hire == "hold" { label = "Hold hiring / stay lean"; }
-        lines.append(f"Tempted hiring move: {label}.");
+    if _answered(answers, "website") {
+        lines.append(f"Website: {answers['website']}.");
+    }
+    if _answered(answers, "summary") {
+        lines.append(f"Site intel: {str(answers['summary'])[:280]}");
+    }
+    lines.append(f"Consult desks: {', '.join(modules)}.");
+    if mgmt {
+        label = mgmt;
+        if mgmt == "two_eng" { label = "Hire two full-time engineers now"; }
+        elif mgmt == "one_plus" { label = "One engineer + contractor"; }
+        elif mgmt == "infra" { label = "Invest in infra / tools, hold headcount"; }
+        elif mgmt == "hold" { label = "Hold hiring / stay lean"; }
+        lines.append(f"Management move: {label}.");
     }
     if launch {
         label = launch;
         if launch == "full" { label = "Full public launch on the milestone date"; }
         elif launch == "staged" { label = "Staged / soft launch first"; }
         elif launch == "delay" { label = "Delay launch if needed"; }
-        lines.append(f"Tempted launch move: {label}.");
+        lines.append(f"Launch move: {label}.");
     }
-    if raise_s {
-        label = raise_s;
-        if raise_s == "raise_soon" { label = "Start raising soon"; }
-        elif raise_s == "extend" { label = "Extend runway / cut burn first"; }
-        elif raise_s == "none" { label = "Not raising this cycle"; }
-        lines.append(f"Fundraising posture: {label}.");
+    if fin {
+        label = fin;
+        if fin == "raise_soon" { label = "Start raising soon"; }
+        elif fin == "extend" { label = "Extend runway / cut burn first"; }
+        elif fin == "price_up" { label = "Raise prices / push MRR"; }
+        elif fin == "none" { label = "Hold cash posture this cycle"; }
+        lines.append(f"Finance move: {label}.");
+    }
+    if pub {
+        label = pub;
+        if pub == "paid" { label = "Paid ads / paid acquisition push"; }
+        elif pub == "influencer" { label = "Influencer / creator partnerships"; }
+        elif pub == "organic" { label = "Organic / content / community first"; }
+        elif pub == "hold_mkt" { label = "Hold marketing spend"; }
+        lines.append(f"Publicity move: {label}.");
     }
     lines.append(f"Milestone: {ms} by {md}.");
     context_parts: list = [];
@@ -298,8 +425,13 @@ def build_proposal(plan: str, answers: dict, modules: list) -> str {
         }
     }
     if context_parts {
-        lines.append(f"Business context: {'; '.join(context_parts)}.");
+        lines.append("Plan specifics: " + "; ".join(context_parts) + ".");
     }
-    lines.append("Spine: what happens to the cash-out date, and does the milestone land before it?");
+    if _answered(answers, "prior_history") {
+        lines.append("");
+        lines.append("PRIOR DECISIONS (founder follow-through):");
+        lines.append(str(answers["prior_history"]));
+        lines.append("Weight these outcomes: if they DID go through and it helped or hurt, bias Blue/Red toward that evidence; if they DID NOT, treat the prior recommendation as rejected.");
+    }
     return "\n".join(lines);
 }

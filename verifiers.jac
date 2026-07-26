@@ -122,18 +122,41 @@ def pretty_date(ymd: str) -> str {
     return f"{mon} {p[2]}, {p[0]}";
 }
 
+def raw_net_burn(state: dict) -> float {
+    return float(state.get("monthly_burn", 0.0)) - float(state.get("mrr", 0.0));
+}
+
 def net_burn(state: dict) -> float {
-    net = float(state.get("monthly_burn", 0.0)) - float(state.get("mrr", 0.0));
-    if net < 1.0 { net = 1.0; }
+    # True economics: MRR can cover burn (cash-flow positive).
+    # Never clamp to $1 — that invents fake year-3026 cash-outs.
+    net = raw_net_burn(state);
+    if net < 0.0 { return 0.0; }
     return net;
 }
 
+def is_cashflow_positive(state: dict) -> bool {
+    return raw_net_burn(state) <= 0.0;
+}
+
 def runway_months(state: dict) -> float {
-    return float(state.get("cash", 0.0)) / net_burn(state);
+    if is_cashflow_positive(state) {
+        return 999.0;
+    }
+    nb = net_burn(state);
+    if nb < 1.0 { nb = 1.0; }
+    return float(state.get("cash", 0.0)) / nb;
 }
 
 def cash_out_date(state: dict) -> str {
     as_of = str(state.get("as_of", "2026-07-26"));
+    if is_cashflow_positive(state) {
+        # Not burning — cash-out is not the binding constraint. Park far past milestone.
+        md = str(state.get("milestone_date", ""));
+        if md {
+            return add_days(md, 365 * 2);
+        }
+        return add_days(as_of, 365 * 3);
+    }
     days = int(runway_months(state) * 30.437 + 0.5);
     return add_days(as_of, days);
 }
@@ -167,7 +190,7 @@ def _clamp(v: float, lo: float, hi: float) -> float {
     return v;
 }
 
-def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int, shift_days: int, label: str) -> dict {
+def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int, shift_days: int, label: str, cash_spend: float = 0.0, burn_add: float = 0.0) -> dict {
     # LLM proposes bounded percentages; THIS function does the arithmetic.
     st = copy.deepcopy(state);
     bp = _clamp(float(burn_pct), -40.0, 80.0);
@@ -175,12 +198,16 @@ def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int
     hc = int(_clamp(float(hc_delta), -3.0, 5.0));
     sh = int(_clamp(float(shift_days), -45.0, 90.0));
     burn_delta = float(st.get("monthly_burn", 0.0)) * bp / 100.0;
-    st["monthly_burn"] = float(st.get("monthly_burn", 0.0)) + burn_delta;
+    st["monthly_burn"] = float(st.get("monthly_burn", 0.0)) + burn_delta + float(burn_add);
     st["mrr"] = max(0.0, float(st.get("mrr", 0.0)) * (1.0 + mp / 100.0));
     st["headcount"] = max(0, int(st.get("headcount", 0)) + hc);
+    spend = max(0.0, float(cash_spend));
+    if spend > 0.0 {
+        st["cash"] = max(0.0, float(st.get("cash", 0.0)) - spend);
+    }
     if sh != 0 { st["milestone_date"] = shift_milestone(st, sh); }
     if float(st.get("monthly_burn", 0.0)) < 1000.0 { st["monthly_burn"] = 1000.0; }
-    return {"state": st, "cost_delta": burn_delta * 3.0, "tag": "custom", "label": label};
+    return {"state": st, "cost_delta": burn_delta * 3.0 + spend, "tag": "custom", "label": label};
 }
 
 def apply_stress_draft(state: dict, burn_pct: float, mrr_pct: float, shift_days: int) -> dict {
@@ -206,7 +233,11 @@ def apply_stress(state: dict, tag: str) -> dict {
 
 def check_runway(state: dict) -> EvidenceResult {
     months = runway_months(state);
-    ok = months >= 1.5;
+    ok = months >= 1.5 or is_cashflow_positive(state);
+    if is_cashflow_positive(state) {
+        return EvidenceResult(check="runway_floor", value="CF+", passed=True, module="runway",
+            detail=f"Cash-flow positive (MRR ${float(state.get('mrr', 0.0)):.0f}/mo covers burn ${float(state.get('monthly_burn', 0.0)):.0f}/mo)");
+    }
     return EvidenceResult(check="runway_floor", value=f"{months:.2f} mo", passed=ok, module="runway",
         detail=f"Runway {months:.2f} months (net burn ${net_burn(state):.0f}/mo)");
 }

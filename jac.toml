@@ -3,5 +3,9 @@ name = "splithorizon"
 version = "0.1.0"
 description = "SplitHorizon — adversarial decision simulator for startup founders"
 
+# Ensures `jac install` syncs litellm into .jac/venv for by llm() drafts.
+[project.intents]
+runtime = ["llm"]
+
 [byllm.model]
 default_model = "gemini/gemini-flash-lite-latest"

@@ -4,7 +4,7 @@ import json;
 import os;
 import time;
 
-glob LLM_RETRY_SLEEP: float = 8.0;
+glob LLM_RETRY_SLEEP: float = 1.0;
 
 obj MoveDraft {
     has move: str = "noop";
@@ -59,7 +59,7 @@ def blue_propose_llm(branch_summary: str, question: str, prior_attacks: str) -> 
 sem red_attack_llm = "You attack the branch's plan. Propose ONE realistic failure mode SPECIFIC to the plan and move described (not a generic burn spike). Output: claim (one concrete sentence), severity (low|medium|high), check_hint='alive_at_milestone', stress_tag='custom', and bounded stress the deterministic verifier will apply: burn_delta_pct (0..30 % increase to monthly burn), mrr_delta_pct (-40..0 % hit to MRR), milestone_shift_days (0..45 days of delay).";
 def red_attack_llm(branch_summary: str, move: str) -> AttackDraft by llm(temperature=0.4);
 
-sem classify_plan_llm = "Classify a startup founder's stated plan into the decision modules it touches, from exactly {hire, launch, runway}. Pick 1-3: hire = adding/cutting people or contractors; launch = shipping/releasing/going to market/marketing pushes/expansion; runway = anything implicating cash, burn, spend, pricing, or fundraising. Most plans that cost money should include runway. restated = one sentence restating the plan as an A-vs-B decision.";
+sem classify_plan_llm = "Classify a startup founder's stated plan into consult desks from exactly {finance, management, launch, publicity}. Pick 1-3: finance = raise/burn/cash/pricing/MRR/runway; management = hiring/headcount/contractors/infra/org; launch = shipping/releasing/go-live/product milestone; publicity = ads/campaigns/influencers/marketing/GTM buzz. Most plans that cost money should include finance. restated = one sentence restating the plan as an A-vs-B decision.";
 def classify_plan_llm(plan: str) -> PlanClass by llm(temperature=0.1);
 
 sem intake_followups_llm = "You are intake for a startup survival simulator. Given the founder's plan and what is already known about the company, write up to 3 SHORT follow-up questions whose answers would materially change how the plan plays out (costs, timelines, dependencies, current traction specific to THIS plan — e.g. for an ads plan ask CAC or conversion; for an office move ask relocation cost). Never re-ask anything in the known facts. Each: id = snake_case key, prompt = one plain-English sentence, qtype = 'number' or 'text', placeholder = short example value.";
@@ -96,7 +96,21 @@ def load_fixture_cache(fixture_id: str) -> dict {
 }
 
 def prefer_cache() -> bool {
+    # Offline drafts unless explicitly live. Missing litellm / Gemini quota
+    # must never block the war room.
     return os.environ.get("SPLITHORIZON_LIVE", "") != "1";
+}
+
+def llm_enabled() -> bool {
+    if prefer_cache() {
+        return False;
+    }
+    try {
+        import litellm;
+        return True;
+    } except Exception {
+        return False;
+    }
 }
 
 def move_from_dict(d: dict) -> MoveDraft {
@@ -114,7 +128,7 @@ def move_from_dict(d: dict) -> MoveDraft {
 }
 
 def classify_plan(plan: str) -> PlanClass {
-    if prefer_cache() {
+    if not llm_enabled() {
         return PlanClass(modules=[], restated="");
     }
     try {
@@ -125,21 +139,70 @@ def classify_plan(plan: str) -> PlanClass {
     }
 }
 
+def fallback_intake_followups(plan: str) -> IntakeQSet {
+    # Offline / rate-limit path — still force plan-specific questions so intake
+    # never collapses to "shape choice → war room".
+    t = str(plan).lower();
+    qs: list = [];
+    if ("ad" in t) or ("ads" in t) or ("advertis" in t) or ("instagram" in t) or ("tiktok" in t) or ("influencer" in t) or ("campaign" in t) {
+        qs = [
+            IntakeQ(id="spend_usd", prompt="How much cash will you put into this campaign in the first 30 days (USD)?", qtype="number", placeholder="e.g. 30000"),
+            IntakeQ(id="channel", prompt="Which channel carries most of that spend?", qtype="text", placeholder="e.g. Instagram / Google / influencers"),
+            IntakeQ(id="payback_weeks", prompt="In how many weeks do you need paid acquisition to pay back, or you kill it?", qtype="number", placeholder="e.g. 8")
+        ];
+    } elif ("hire" in t) or ("hiring" in t) or ("engineer" in t) or ("contractor" in t) or ("headcount" in t) or ("recruit" in t) {
+        qs = [
+            IntakeQ(id="loaded_cost", prompt="Fully loaded monthly cost of the hire(s) you're tempted to make (USD / month)?", qtype="number", placeholder="e.g. 28000"),
+            IntakeQ(id="ramp_months", prompt="How many months until that hire is productive?", qtype="number", placeholder="e.g. 3"),
+            IntakeQ(id="slip_if_hold", prompt="What slips on the milestone if you hold hiring instead?", qtype="text", placeholder="e.g. mobile app slips 6 weeks")
+        ];
+    } elif ("raise" in t) or ("fundrais" in t) or ("bridge" in t) or ("dilution" in t) or ("series" in t) {
+        qs = [
+            IntakeQ(id="raise_target", prompt="How much are you trying to raise (USD)?", qtype="number", placeholder="e.g. 1500000"),
+            IntakeQ(id="close_months", prompt="Months until you expect a term sheet (0 if already circling)?", qtype="number", placeholder="e.g. 4"),
+            IntakeQ(id="runway_need", prompt="How many months of runway do you need after close?", qtype="number", placeholder="e.g. 18")
+        ];
+    } elif ("office" in t) or ("relocat" in t) or ("lease" in t) or ("rent" in t) {
+        qs = [
+            IntakeQ(id="move_cost", prompt="One-time move / buildout cost (USD)?", qtype="number", placeholder="e.g. 80000"),
+            IntakeQ(id="rent_delta", prompt="Monthly rent delta vs today (USD / month)?", qtype="number", placeholder="e.g. 12000"),
+            IntakeQ(id="move_date", prompt="When would you actually move?", qtype="text", placeholder="e.g. 2026-09-01")
+        ];
+    } elif ("price" in t) or ("pricing" in t) or ("discount" in t) or ("packag" in t) {
+        qs = [
+            IntakeQ(id="price_change_pct", prompt="What % price change are you considering (negative = cut)?", qtype="number", placeholder="e.g. 20"),
+            IntakeQ(id="customers_touched", prompt="How many current customers does this touch?", qtype="number", placeholder="e.g. 40"),
+            IntakeQ(id="churn_fear_pct", prompt="What churn % would make you roll it back?", qtype="number", placeholder="e.g. 8")
+        ];
+    } elif ("launch" in t) or ("ship" in t) or ("release" in t) or ("go-live" in t) or ("golive" in t) {
+        qs = [
+            IntakeQ(id="launch_cash", prompt="One-time launch / GTM cash outlay (USD)?", qtype="number", placeholder="e.g. 25000"),
+            IntakeQ(id="launch_burn_bump", prompt="Extra monthly burn around launch (USD / month)?", qtype="number", placeholder="e.g. 8000"),
+            IntakeQ(id="launch_risk", prompt="What is the single biggest thing that can slip the date?", qtype="text", placeholder="e.g. SOC2 / App Store review")
+        ];
+    } else {
+        qs = [
+            IntakeQ(id="plan_cash", prompt="How much cash does this plan spend in the next 90 days (USD)?", qtype="number", placeholder="e.g. 40000"),
+            IntakeQ(id="burn_delta", prompt="What does it do to monthly burn after that (USD / month, negative = cut)?", qtype="number", placeholder="e.g. 10000"),
+            IntakeQ(id="success_signal", prompt="What early signal tells you the plan is working?", qtype="text", placeholder="e.g. +15% MoM MRR in 60 days")
+        ];
+    }
+    return IntakeQSet(questions=qs);
+}
+
 def intake_followups(plan: str, known: str) -> IntakeQSet {
-    if prefer_cache() {
-        return IntakeQSet(questions=[]);
+    if not llm_enabled() {
+        return fallback_intake_followups(plan);
     }
     try {
-        return intake_followups_llm(plan, known);
-    } except Exception as e {
-        print(f"[SplitHorizon] intake_followups retry after: {e}");
-        time.sleep(LLM_RETRY_SLEEP);
-        try {
-            return intake_followups_llm(plan, known);
-        } except Exception as e2 {
-            print(f"[SplitHorizon] intake_followups fallback: {e2}");
-            return IntakeQSet(questions=[]);
+        qset = intake_followups_llm(plan, known);
+        if not qset.questions {
+            return fallback_intake_followups(plan);
         }
+        return qset;
+    } except Exception as e {
+        print(f"[SplitHorizon] intake_followups fallback: {e}");
+        return fallback_intake_followups(plan);
     }
 }
 
@@ -170,117 +233,168 @@ def _q_lower(s: str) -> str {
     return str(s).lower();
 }
 
-def scenario_blue_fallback(question: str, round_no: int) -> MoveDraft {
-    # Plan-specific fallbacks when LLM is offline/rate-limited — NEVER default to hiring.
+def normalize_draft_areas(raw: list) -> list {
+    allowed = ["finance", "management", "launch", "publicity"];
+    out: list = [];
+    for m in raw {
+        a = str(m).lower().strip();
+        if a in ["hire", "hiring"] { a = "management"; }
+        elif a in ["runway", "money"] { a = "finance"; }
+        elif a in ["marketing", "ads", "pr"] { a = "publicity"; }
+        if a in allowed and a not in out {
+            out.append(a);
+        }
+    }
+    return out;
+}
+
+def infer_areas_from_plan(question: str) -> list {
     t = _q_lower(question);
+    mods: list = [];
+    if ("hire" in t) or ("engineer" in t) or ("headcount" in t) or ("contractor" in t) or ("infra" in t) or ("office" in t) or ("fire" in t) or ("layoff" in t) {
+        mods.append("management");
+    }
+    if ("launch" in t) or ("ship" in t) or ("release" in t) or ("go-live" in t) or ("golive" in t) or ("mvp" in t) {
+        mods.append("launch");
+    }
+    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) or ("publicity" in t) or ("gtm" in t) {
+        mods.append("publicity");
+    }
+    if ("raise" in t) or ("fundrais" in t) or ("burn" in t) or ("runway" in t) or ("price" in t) or ("mrr" in t) or ("cash" in t) or ("spend" in t) or ("buy" in t) or ("purchase" in t) or ("printer" in t) or ("equipment" in t) or ("capex" in t) or ("machine" in t) {
+        mods.append("finance");
+    }
+    if not mods {
+        mods = ["finance"];
+    }
+    return mods;
+}
+
+def pick_area(areas: list, question: str, round_no: int, variety: int = 0) -> str {
+    cleaned = normalize_draft_areas(areas) if areas else [];
+    if not cleaned {
+        cleaned = infer_areas_from_plan(question);
+    }
+    idx = (round_no - 1 + variety) % len(cleaned);
+    return cleaned[idx];
+}
+
+def is_equipment_plan(question: str) -> bool {
+    t = _q_lower(question);
+    return ("buy" in t) or ("purchase" in t) or ("printer" in t) or ("equipment" in t) or ("machine" in t) or ("capex" in t) or ("gear" in t) or ("hardware" in t) or ("tooling" in t);
+}
+
+def area_blue_fallback(area: str, question: str, round_no: int) -> MoveDraft {
+    # Desk-specialized Blue agents — each consult area has its own move vocabulary.
+    # Equipment / buy plans always use capex moves (never collapse to hiring).
+    a = str(area);
     opts: list = [];
-    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) or ("cac" in t) {
+    if is_equipment_plan(question) {
         opts = [
-            MoveDraft(move="custom", claim="Commit the full acquisition spend to hit the signup goal before the milestone", effect_tag="custom", module="launch", label="Run full acquisition spend", burn_delta_pct=45.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Pilot a smaller spend first to validate conversion before scaling", effect_tag="custom", module="launch", label="Pilot smaller spend first", burn_delta_pct=18.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=7),
-            MoveDraft(move="custom", claim="Shift to organic/referral channels to protect runway", effect_tag="custom", module="runway", label="Pivot to organic channels", burn_delta_pct=-8.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=14)
+            MoveDraft(move="custom", claim="Buy the full equipment set now to unlock capacity before the milestone", effect_tag="custom", module="finance", label="Buy both now", burn_delta_pct=8.0, mrr_delta_pct=18.0, headcount_delta=0, milestone_shift_days=-7),
+            MoveDraft(move="custom", claim="Buy one unit first; prove utilization before the second purchase", effect_tag="custom", module="finance", label="Buy one first", burn_delta_pct=4.0, mrr_delta_pct=9.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Lease / finance the gear to protect cash while adding capacity", effect_tag="custom", module="finance", label="Lease instead of buy", burn_delta_pct=12.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=-3),
+            MoveDraft(move="custom", claim="Do not buy — max out current capacity and delay capex", effect_tag="custom", module="finance", label="Do not buy — wait", burn_delta_pct=-5.0, mrr_delta_pct=2.0, headcount_delta=0, milestone_shift_days=14)
         ];
-    } elif ("price" in t) or ("pricing" in t) or ("raise price" in t) or ("enterprise" in t and "price" in t) {
+        idx = (round_no - 1) % len(opts);
+        return opts[idx];
+    }
+    if a == "finance" {
         opts = [
-            MoveDraft(move="custom", claim="Raise prices now and accept some churn for higher ARPU", effect_tag="custom", module="runway", label="Raise prices now", burn_delta_pct=0.0, mrr_delta_pct=25.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Grandfather existing customers; new logo pricing only", effect_tag="custom", module="launch", label="New-logo pricing only", burn_delta_pct=2.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=5),
-            MoveDraft(move="custom", claim="Hold price and compete on packaging instead", effect_tag="custom", module="runway", label="Hold price, repackage", burn_delta_pct=5.0, mrr_delta_pct=4.0, headcount_delta=0, milestone_shift_days=10)
+            MoveDraft(move="custom", claim="Start the raise now so cash-out stays past the milestone", effect_tag="custom", module="finance", label="Finance: start raise", burn_delta_pct=5.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=7),
+            MoveDraft(move="custom", claim="Cut discretionary burn to buy months before the raise", effect_tag="custom", module="finance", label="Finance: cut burn", burn_delta_pct=-18.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=5),
+            MoveDraft(move="custom", claim="Raise prices to lift MRR and extend cash-out without dilution", effect_tag="custom", module="finance", label="Finance: raise prices", burn_delta_pct=0.0, mrr_delta_pct=22.0, headcount_delta=0, milestone_shift_days=0)
         ];
-    } elif ("office" in t) or ("relocat" in t) or ("second location" in t) or ("expand to" in t) {
+    } elif a == "management" {
+        tq = str(question).lower();
+        if ("fire" in tq) or ("layoff" in tq) or ("let go" in tq) or ("cut headcount" in tq) or ("reduce staff" in tq) {
+            opts = [
+                MoveDraft(move="custom", claim="Fire two seats now to cut burn and protect cash-out past the milestone", effect_tag="custom", module="management", label="Fire two employees", burn_delta_pct=-35.0, mrr_delta_pct=0.0, headcount_delta=-2, milestone_shift_days=7),
+                MoveDraft(move="custom", claim="Fire one seat and freeze hiring — smaller cut, less delivery risk", effect_tag="custom", module="management", label="Fire one + freeze hiring", burn_delta_pct=-18.0, mrr_delta_pct=0.0, headcount_delta=-1, milestone_shift_days=3),
+                MoveDraft(move="hire_0_hold", claim="Do not fire; hold lean and re-scope the milestone instead", effect_tag="hire_0_hold", module="management", label="No layoff — hold lean"),
+                MoveDraft(move="hire_2_eng", claim="Reject the layoff and hire instead — usually dies on burn", effect_tag="hire_2_eng", module="management", label="Instead: hire two")
+            ];
+        } else {
+            opts = [
+                MoveDraft(move="hire_2_eng", claim="Hire two engineers to protect the milestone date", effect_tag="hire_2_eng", module="management", label="Hire two engineers"),
+                MoveDraft(move="hire_1_eng_contractor", claim="One engineer plus contractor to limit burn", effect_tag="hire_1_eng_contractor", module="management", label="One eng + contractor"),
+                MoveDraft(move="custom", claim="Invest in infra/tools instead of headcount this cycle", effect_tag="custom", module="management", label="Infra first, hold headcount", burn_delta_pct=12.0, mrr_delta_pct=2.0, headcount_delta=0, milestone_shift_days=-5),
+                MoveDraft(move="hire_0_hold", claim="Hold hiring and accept milestone slip if needed", effect_tag="hire_0_hold", module="management", label="Hold hiring")
+            ];
+        }
+    } elif a == "launch" {
         opts = [
-            MoveDraft(move="custom", claim="Open the second office now to unlock hiring and customers", effect_tag="custom", module="runway", label="Open second office now", burn_delta_pct=35.0, mrr_delta_pct=8.0, headcount_delta=2, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Start with a small hub and hybrid travel instead of a full office", effect_tag="custom", module="runway", label="Small hub + hybrid", burn_delta_pct=12.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=10),
-            MoveDraft(move="custom", claim="Stay remote and redeploy rent budget into GTM", effect_tag="custom", module="runway", label="Stay remote, fund GTM", burn_delta_pct=-5.0, mrr_delta_pct=6.0, headcount_delta=0, milestone_shift_days=0)
-        ];
-    } elif ("client" in t) or ("customer" in t) or ("sales" in t) or ("outbound" in t) or ("pipeline" in t) {
-        opts = [
-            MoveDraft(move="custom", claim="Stand up a focused outbound motion to land the next customers", effect_tag="custom", module="launch", label="Stand up outbound sales", burn_delta_pct=22.0, mrr_delta_pct=15.0, headcount_delta=1, milestone_shift_days=-5),
-            MoveDraft(move="custom", claim="Founder-led sales only until conversion is proven", effect_tag="custom", module="launch", label="Founder-led sales only", burn_delta_pct=5.0, mrr_delta_pct=8.0, headcount_delta=0, milestone_shift_days=7),
-            MoveDraft(move="custom", claim="Partner/channel motion instead of direct sales headcount", effect_tag="custom", module="launch", label="Partner channel motion", burn_delta_pct=10.0, mrr_delta_pct=10.0, headcount_delta=0, milestone_shift_days=14)
-        ];
-    } elif ("hire" in t) or ("engineer" in t) or ("headcount" in t) or ("contractor" in t) {
-        opts = [
-            MoveDraft(move="hire_2_eng", claim="Hire two engineers to protect the milestone", effect_tag="hire_2_eng", module="hire", label="Hire two engineers"),
-            MoveDraft(move="hire_1_eng_contractor", claim="One engineer plus contractor to limit burn", effect_tag="hire_1_eng_contractor", module="hire", label="One eng + contractor"),
-            MoveDraft(move="hire_0_hold", claim="Hold hiring and slip the milestone if needed", effect_tag="hire_0_hold", module="hire", label="Hold hiring")
-        ];
-    } elif ("raise" in t) or ("fundrais" in t) or ("burn" in t) or ("runway" in t) {
-        opts = [
-            MoveDraft(move="raise_soon", claim="Start the raise immediately", effect_tag="raise_soon", module="runway", label="Start raising"),
-            MoveDraft(move="cut_burn", claim="Cut discretionary burn to extend runway first", effect_tag="cut_burn", module="runway", label="Cut discretionary burn"),
-            MoveDraft(move="custom", claim="Bridge: light cut plus soft raise conversations", effect_tag="custom", module="runway", label="Bridge cut + soft raise", burn_delta_pct=-8.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=5)
+            MoveDraft(move="custom", claim="Ship the full public launch on the milestone date", effect_tag="custom", module="launch", label="Launch: full ship", burn_delta_pct=15.0, mrr_delta_pct=10.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Soft-launch to a limited cohort first to de-risk", effect_tag="custom", module="launch", label="Launch: staged soft", burn_delta_pct=8.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=10),
+            MoveDraft(move="custom", claim="Slip the ship date to protect cash-out if blockers remain", effect_tag="custom", module="launch", label="Launch: slip date", burn_delta_pct=0.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=21)
         ];
     } else {
+        # publicity
         opts = [
-            MoveDraft(move="custom", claim="Execute the stated plan at full intensity", effect_tag="custom", module="runway", label="Execute plan fully", burn_delta_pct=20.0, mrr_delta_pct=8.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Stage a smaller version of the plan to protect cash-out", effect_tag="custom", module="runway", label="Stage a smaller version", burn_delta_pct=8.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=10),
-            MoveDraft(move="custom", claim="Defer the plan and preserve runway until the milestone is safer", effect_tag="custom", module="runway", label="Defer, preserve runway", burn_delta_pct=-6.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=21)
+            MoveDraft(move="custom", claim="Commit paid acquisition spend to hit signup goals before the milestone", effect_tag="custom", module="publicity", label="Publicity: full paid push", burn_delta_pct=40.0, mrr_delta_pct=14.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Pilot a smaller campaign first to validate CAC before scaling", effect_tag="custom", module="publicity", label="Publicity: pilot campaign", burn_delta_pct=16.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=7),
+            MoveDraft(move="custom", claim="Shift to organic/creator channels to protect runway", effect_tag="custom", module="publicity", label="Publicity: organic/creators", burn_delta_pct=-6.0, mrr_delta_pct=4.0, headcount_delta=0, milestone_shift_days=14)
         ];
     }
     idx = (round_no - 1) % len(opts);
     return opts[idx];
 }
 
+def area_red_fallback(area: str, question: str, move: str, round_no: int) -> AttackDraft {
+    a = str(area);
+    if is_equipment_plan(question + " " + move) {
+        return AttackDraft(claim="Equipment Red: utilization misses — gear sits idle while cash and rent/loan payments pull cash-out forward", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=15.0, mrr_delta_pct=-12.0, milestone_shift_days=14);
+    }
+    if a == "finance" {
+        return AttackDraft(claim="Finance Red: raise stalls or burn cut isn't enough — cash-out crosses ahead of the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=8.0, mrr_delta_pct=-12.0, milestone_shift_days=14);
+    }
+    if a == "management" {
+        return AttackDraft(claim="Management Red: onboarding freeze — new cost lands before productivity moves the date", severity="high", check_hint="alive_at_milestone", stress_tag="onboarding_freeze", burn_delta_pct=10.0, mrr_delta_pct=0.0, milestone_shift_days=21);
+    }
+    if a == "launch" {
+        return AttackDraft(claim="Launch Red: ship blockers slip the date while burn keeps running", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=6.0, mrr_delta_pct=-8.0, milestone_shift_days=21);
+    }
+    return AttackDraft(claim="Publicity Red: CAC spikes and conversions miss — spend burns before MRR lands", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=12.0, mrr_delta_pct=-20.0, milestone_shift_days=14);
+}
+
+def scenario_blue_fallback(question: str, round_no: int) -> MoveDraft {
+    area = pick_area([], question, round_no, 0);
+    return area_blue_fallback(area, question, round_no);
+}
+
 def scenario_red_fallback(question: str, move: str, round_no: int) -> AttackDraft {
-    t = _q_lower(question + " " + move);
-    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) {
-        return AttackDraft(claim="Acquisition spend fails to convert; CAC spikes and MRR does not land before the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=12.0, mrr_delta_pct=-20.0, milestone_shift_days=14);
-    }
-    if ("price" in t) or ("pricing" in t) {
-        return AttackDraft(claim="Price hike triggers churn and stalled expansion revenue before the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=5.0, mrr_delta_pct=-25.0, milestone_shift_days=10);
-    }
-    if ("office" in t) or ("relocat" in t) {
-        return AttackDraft(claim="Office build-out overruns and distracts the team, delaying the milestone", severity="medium", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=18.0, mrr_delta_pct=-5.0, milestone_shift_days=21);
-    }
-    if ("client" in t) or ("sales" in t) or ("outbound" in t) {
-        return AttackDraft(claim="Sales cycle slips; pipeline does not convert before cash pressure hits", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=10.0, mrr_delta_pct=-15.0, milestone_shift_days=20);
-    }
-    if ("hire" in t) or ("engineer" in t) {
-        return AttackDraft(claim="Onboarding freeze: new hires raise burn before they move the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="onboarding_freeze", burn_delta_pct=8.0, mrr_delta_pct=0.0, milestone_shift_days=21);
-    }
-    return AttackDraft(claim="The plan's costs land before its upside; cash-out moves ahead of the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=10.0, mrr_delta_pct=-10.0, milestone_shift_days=14);
+    area = pick_area([], question + " " + move, round_no, 0);
+    return area_red_fallback(area, question, move, round_no);
 }
 
 def is_cached_fixture(fixture_id: str) -> bool {
     return fixture_id in ["interlock", "hire", "launch", "runway"];
 }
 
-def blue_propose(branch_summary: str, question: str, prior_attacks: str, fixture_id: str, round_no: int, variety: int = 0) -> MoveDraft {
+def blue_propose(branch_summary: str, question: str, prior_attacks: str, fixture_id: str, round_no: int, variety: int = 0, areas: list = []) -> MoveDraft {
     cache = load_fixture_cache(fixture_id) if fixture_id else {};
     key = f"blue_r{round_no}";
     if cache and key in cache and variety == 0 {
         return move_from_dict(cache[key]);
     }
-    # Custom / unknown fixtures: always try LLM when live; else scenario-aware fallback.
     pick = round_no + variety;
     if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        if not prefer_cache() {
-            try {
-                return blue_propose_llm(branch_summary, question, prior_attacks);
-            } except Exception as e {
-                print(f"[SplitHorizon] blue_propose retry after: {e}");
-                time.sleep(LLM_RETRY_SLEEP);
-                try {
-                    return blue_propose_llm(branch_summary, question, prior_attacks);
-                } except Exception as e2 {
-                    print(f"[SplitHorizon] blue_propose scenario fallback: {e2}");
-                }
-            }
-        }
-        return scenario_blue_fallback(question, pick);
+        area = pick_area(areas, question, round_no, variety);
+        return area_blue_fallback(area, question, pick);
     }
     if prefer_cache() {
-        return scenario_blue_fallback(question, pick);
+        area = pick_area(areas, question, round_no, variety);
+        return area_blue_fallback(area, question, pick);
     }
     try {
         return blue_propose_llm(branch_summary, question, prior_attacks);
     } except Exception as e {
         print(f"[SplitHorizon] blue_propose fallback: {e}");
-        return scenario_blue_fallback(question, pick);
+        area = pick_area(areas, question, round_no, variety);
+        return area_blue_fallback(area, question, pick);
     }
 }
 
-def red_attack(question: str, branch_summary: str, move: str, fixture_id: str, round_no: int) -> AttackDraft {
+def red_attack(question: str, branch_summary: str, move: str, fixture_id: str, round_no: int, areas: list = []) -> AttackDraft {
     cache = load_fixture_cache(fixture_id) if fixture_id else {};
     key = f"red_r{round_no}";
     if cache and key in cache {
@@ -288,29 +402,19 @@ def red_attack(question: str, branch_summary: str, move: str, fixture_id: str, r
     }
     context = str(question) + " " + str(branch_summary) + " " + str(move);
     if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        if not prefer_cache() {
-            try {
-                return red_attack_llm(branch_summary, move);
-            } except Exception as e {
-                print(f"[SplitHorizon] red_attack retry after: {e}");
-                time.sleep(LLM_RETRY_SLEEP);
-                try {
-                    return red_attack_llm(branch_summary, move);
-                } except Exception as e2 {
-                    print(f"[SplitHorizon] red_attack scenario fallback: {e2}");
-                }
-            }
-        }
-        return scenario_red_fallback(context, move, round_no);
+        area = pick_area(areas, context, round_no, 0);
+        return area_red_fallback(area, question, move, round_no);
     }
     if prefer_cache() {
-        return scenario_red_fallback(context, move, round_no);
+        area = pick_area(areas, context, round_no, 0);
+        return area_red_fallback(area, question, move, round_no);
     }
     try {
         return red_attack_llm(branch_summary, move);
     } except Exception as e {
         print(f"[SplitHorizon] red_attack fallback: {e}");
-        return scenario_red_fallback(context, move, round_no);
+        area = pick_area(areas, context, round_no, 0);
+        return area_red_fallback(area, question, move, round_no);
     }
 }
 
@@ -319,20 +423,15 @@ def arbiter_narrate(scorecards: str, findings: str, fixture_id: str) -> MemoPros
     if cache and "memo" in cache {
         return memo_from_dict(cache["memo"]);
     }
-    if prefer_cache() and fixture_id {
-        return MemoProse(title="Cached Memo", recommended_reason="Best surviving branch by cash-out", kill_shots="See findings", open_risks="Residual uncertainty", dissent="Dead branches", date_line="");
+    # Custom + offline: empty shells — engine builds decision-specific intel.
+    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
+        return MemoProse(title="Decision memo", recommended_reason="", kill_shots="", open_risks="", dissent="", date_line="");
     }
     try {
         return arbiter_narrate_llm(scorecards, findings);
-    } except Exception as e0 {
-        print(f"[SplitHorizon] arbiter retry after: {e0}");
-        time.sleep(LLM_RETRY_SLEEP);
-        try {
-            return arbiter_narrate_llm(scorecards, findings);
-        } except Exception as e {
-            print(f"[SplitHorizon] arbiter fallback: {e}");
-            return MemoProse(title="Arbiter Decision Memo", recommended_reason="Longest cash-out among alive branches", kill_shots=findings[:500], open_risks="Uncertainty remains", dissent="Red findings", date_line="");
-        }
+    } except Exception as e {
+        print(f"[SplitHorizon] arbiter fallback: {e}");
+        return MemoProse(title="Arbiter Decision Memo", recommended_reason="Longest cash-out among alive branches", kill_shots=findings[:500], open_risks="Uncertainty remains", dissent="Red findings", date_line="");
     }
 }
 
@@ -342,20 +441,15 @@ def plan_narrate(memo_summary: str, plan_steps: str, fixture_id: str) -> PlanNar
         d = cache["plan_narration"];
         return PlanNarration(analysis=str(d.get("analysis", "")), watch_for=str(d.get("watch_for", "")));
     }
-    if prefer_cache() and fixture_id {
+    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
+        # Empty — engine.jac builds plan/analysis from verified dates + desk playbooks.
         return PlanNarration(analysis="", watch_for="");
     }
     try {
         return plan_narrate_llm(memo_summary, plan_steps);
-    } except Exception as e0 {
-        print(f"[SplitHorizon] plan_narrate retry after: {e0}");
-        time.sleep(LLM_RETRY_SLEEP);
-        try {
-            return plan_narrate_llm(memo_summary, plan_steps);
-        } except Exception as e {
-            print(f"[SplitHorizon] plan_narrate fallback: {e}");
-            return PlanNarration(analysis="", watch_for="");
-        }
+    } except Exception as e {
+        print(f"[SplitHorizon] plan_narrate fallback: {e}");
+        return PlanNarration(analysis="", watch_for="");
     }
 }
 
@@ -364,12 +458,12 @@ def baseline_plan(text: str, fixture_id: str) -> str {
     if cache and "baseline" in cache {
         return str(cache["baseline"]);
     }
-    if prefer_cache() and fixture_id {
-        return "Baseline unavailable in cache.";
+    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
+        return "Chatbot foil: just do it — spend/hire now and hope the milestone lands. (No red-team, no cash-out date.)";
     }
     try {
         return baseline_plan_llm(text);
     } except Exception as e {
-        return f"One-shot baseline failed ({e}). Naive: hire two engineers immediately.";
+        return f"One-shot baseline failed ({e}). Naive: execute the plan immediately without checking cash-out.";
     }
 }

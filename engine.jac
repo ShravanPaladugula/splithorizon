@@ -31,6 +31,7 @@ obj Session {
     has events: list = [];
     has company: dict = {};
     has verifier_registry: list = [];
+    has areas: list = [];
 }
 
 def new_branch_id(session: Session) -> str {
@@ -127,17 +128,30 @@ def append_evidence(session: Session, branch_id: str, bundle: VerifyBundle) {
     }
 }
 
-def seed_session(proposal: str, fixture_id: str, rounds: int, company_overrides: dict = {}) -> Session {
+def seed_session(proposal: str, fixture_id: str, rounds: int, company_overrides: dict = {}, areas: list = []) -> Session {
     session = Session(fixture_id=fixture_id, proposal=proposal, rounds=rounds);
+    session.areas = areas if areas else [];
+    # Capex / buy plans always include finance desk arithmetic even if UI only toggled management.
+    if is_equipment_plan(proposal) {
+        cleaned = normalize_draft_areas(session.areas);
+        if "finance" not in cleaned {
+            cleaned = ["finance"] + cleaned;
+        }
+        session.areas = cleaned if cleaned else ["finance"];
+    }
     fx = get_fixture(fixture_id) if fixture_id else get_fixture("interlock");
     company = seed_company_state(company_overrides);
     session.company = company;
     if fixture_id == "custom" {
-        session.title = "Your decision — live simulation";
-        session.domain = "custom";
+        desk = ", ".join(session.areas) if session.areas else "custom";
+        session.title = f"Your decision — {desk} desk";
+        session.domain = desk;
     } else {
         session.title = str(fx.get("name", "SplitHorizon"));
         session.domain = str(fx.get("module", "interlock"));
+        if not session.areas {
+            session.areas = ["management", "launch"];
+        }
     }
     session.question = proposal if proposal else str(fx.get("proposal", ""));
     session.verifier_registry = list_verifier_registry();
@@ -336,13 +350,15 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     if moves_seen {
         prior = prior + " || Moves ALREADY on the tree (propose something DIFFERENT): " + "; ".join(moves_seen[-5:]);
     }
-    draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no, len(moves_seen));
+    draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no, len(moves_seen), session.areas);
     tag = draft.effect_tag if draft.effect_tag else draft.move;
     is_custom = bool(draft.label) and (tag == "custom" or tag not in EFFECT_CATALOG);
     label = draft.label if is_custom else effect_label(tag);
-    child = fork_branch(session, parent, f"R{round_no} Blue: {label[:42]}", "blue", round_no, tag);
+    desk = str(draft.module) if draft.module else "blue";
+    child = fork_branch(session, parent, f"R{round_no} {desk}: {label[:36]}", "blue", round_no, tag);
     child["last_action"] = label;
-    child["summary"] = f"Blue: {draft.claim} [{label if is_custom else tag}]";
+    child["desk"] = desk;
+    child["summary"] = f"{desk} Blue: {draft.claim} [{label if is_custom else tag}]";
 
     prior_burn = float(parent.get("monthly_burn", 0.0));
     if is_custom and draft.headcount_delta == 0 {
@@ -351,10 +367,27 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
         prior_burn = -1.0;
     }
     if is_custom {
+        cash_spend = 0.0;
+        burn_add = 0.0;
+        ll = label.lower();
+        plan_cash = float(session.company.get("plan_cash", 0.0)) if session.company else 0.0;
+        plan_burn = float(session.company.get("plan_burn_delta", 0.0)) if session.company else 0.0;
+        if plan_cash <= 0.0 { plan_cash = 2000.0; }
+        if ("buy both" in ll) or ("buy the full" in ll) {
+            cash_spend = plan_cash;
+            burn_add = plan_burn;
+        } elif ("buy one" in ll) {
+            cash_spend = plan_cash * 0.5;
+            burn_add = plan_burn * 0.5;
+        } elif ("lease" in ll) {
+            cash_spend = plan_cash * 0.15;
+            burn_add = max(plan_burn, plan_cash * 0.04);
+        }
         applied = apply_move_draft(
             state_from_branch(parent),
             draft.burn_delta_pct, draft.mrr_delta_pct,
-            draft.headcount_delta, draft.milestone_shift_days, label
+            draft.headcount_delta, draft.milestone_shift_days, label,
+            cash_spend, burn_add
         );
     } else {
         applied = apply_effect(state_from_branch(parent), tag);
@@ -383,10 +416,15 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
 }
 
 def red_turn(session: Session, parent: dict, round_no: int) -> dict {
-    draft = red_attack(session.question, parent.get("summary", ""), parent.get("move", ""), session.fixture_id, round_no);
-    child = fork_branch(session, parent, f"R{round_no} Red: {draft.claim[:42]}", "red", round_no, draft.stress_tag);
+    draft = red_attack(session.question, parent.get("summary", ""), parent.get("move", ""), session.fixture_id, round_no, session.areas);
+    desk = str(parent.get("desk", ""));
+    if not desk {
+        desk = str(session.areas[0]) if session.areas else "red";
+    }
+    child = fork_branch(session, parent, f"R{round_no} {desk} Red: {draft.claim[:32]}", "red", round_no, draft.stress_tag);
     child["last_stressor"] = draft.claim;
-    child["summary"] = f"Red: {draft.claim} [{draft.stress_tag}]";
+    child["desk"] = desk;
+    child["summary"] = f"{desk} Red: {draft.claim} [{draft.stress_tag}]";
 
     session.attacks.append({
         "id": f"a{len(session.attacks)+1}",
@@ -487,6 +525,331 @@ def score_all(session: Session) {
     }
 }
 
+def extract_decision_line(text: str) -> str {
+    raw = str(text or "").strip();
+    for line in raw.split("\n") {
+        t = line.strip();
+        low = t.lower();
+        if low.startswith("decision:") {
+            return t[9:].strip() if len(t) > 9 else t;
+        }
+    }
+    # First non-empty non-meta line
+    for line in raw.split("\n") {
+        t = line.strip();
+        if not t { continue; }
+        low = t.lower();
+        if low.startswith("consult desks:") or low.startswith("business:") or low.startswith("milestone:") {
+            continue;
+        }
+        if low.startswith("management move:") or low.startswith("launch move:") or low.startswith("finance move:") or low.startswith("publicity move:") {
+            continue;
+        }
+        if low.startswith("plan specifics:") or low.startswith("tempted") {
+            continue;
+        }
+        return t[:220];
+    }
+    return raw[:220] if raw else "your stated plan";
+}
+
+def primary_desk(session: Session, best: dict) -> str {
+    d = str(best.get("desk", "")) if best else "";
+    if d { return d; }
+    if session.areas {
+        return str(session.areas[0]);
+    }
+    return "finance";
+}
+
+def desk_playbook_steps(desk: str, move_label: str, question: str, best: dict, company: dict) -> list {
+    # Concrete "how to execute" steps — not just "Execute: label".
+    cash_out = pretty_date(str(best.get("cash_out_date", "")));
+    ms = pretty_date(str(best.get("milestone_date", "")));
+    ms_name = str(best.get("milestone", company.get("milestone", "milestone")));
+    burn = float(best.get("monthly_burn", company.get("monthly_burn", 0.0)));
+    mrr = float(best.get("mrr", company.get("mrr", 0.0)));
+    label = str(move_label or "the recommended move");
+    low = (str(question) + " " + label).lower();
+    steps: list = [];
+
+    if desk == "publicity" or ("ad" in low) or ("campaign" in low) or ("influencer" in low) {
+        pilot = ("pilot" in low) or ("organic" in low) or ("smaller" in low);
+        if pilot {
+            steps.append({"when": "This week", "title": "Cap paid spend to a pilot, not the full ask", "detail": f"Fund {label} only. Write the weekly budget on one line and freeze anything above it until CAC is proven."});
+            steps.append({"when": "Day 14", "title": "Kill / scale gate on CAC + payback", "detail": f"If paid acquisition is not on a path to pay back before {ms} ({ms_name}), kill the campaign — do not 'give it one more month'."});
+        } else {
+            steps.append({"when": "This week", "title": "Commit the full acquisition budget in one motion", "detail": f"Execute {label}. Lock channel mix and creative before spend starts so burn does not creep."});
+            steps.append({"when": "Weekly", "title": "Track signup → paid conversion vs burn", "detail": f"Cash-out on this line is {cash_out}. If weekly net burn stays near ${burn:,.0f} without MRR lift, cut channel spend immediately."});
+        }
+        steps.append({"when": "Ongoing", "title": "Protect the milestone narrative publicly", "detail": f"{ms_name} on {ms} is the deadline the campaign must serve — marketing that does not move that date is noise."});
+    } elif ("buy" in low) or ("printer" in low) or ("equipment" in low) or ("purchase" in low) or ("lease" in low) or ("capex" in low) {
+        if ("do not buy" in low) or ("wait" in low) {
+            steps.append({"when": "This week", "title": "Do not buy — max current capacity", "detail": f"Execute {label}. Queue jobs, raise utilization, and write the utilization proof that would unlock a later purchase."});
+            steps.append({"when": "Day 30", "title": "Re-run buy decision with utilization data", "detail": f"Only reopen the purchase if jobs are spilling and {ms_name} still clears before cash-out {cash_out}."});
+        } elif ("one" in low) or ("lease" in low) {
+            steps.append({"when": "This week", "title": f"Execute: {label}", "detail": f"Cap cash outlay; do not buy the full set yet. Tie the purchase to a named capacity unlock before {ms}."});
+            steps.append({"when": "Day 30", "title": "Utilization gate before second unit", "detail": "If the first unit is idle >30% of available hours, stop — do not buy #2."});
+        } else {
+            steps.append({"when": "This week", "title": f"Buy the gear: {label}", "detail": f"Pay from cash, book install date, and assign who fills the new capacity. Cash-out on this line: {cash_out}."});
+            steps.append({"when": "Day 21", "title": "Capacity → revenue check", "detail": f"New printers must pull jobs that move {ms_name} ({ms}). Idle gear is just a cash hole."});
+        }
+        steps.append({"when": ms, "title": f"Capacity vs {ms_name}", "detail": f"Gear only wins if {ms_name} still lands while cash-out stays at {cash_out}."});
+    } elif desk == "management" or ("hire" in low) or ("engineer" in low) or ("infra" in low) or ("fire" in low) or ("layoff" in low) {
+        if ("fire" in low) or ("layoff" in low) {
+            steps.append({"when": "This week", "title": f"Execute: {label}", "detail": f"Name the seats, cut fully loaded cost, freeze backfills. Cash-out on this path: {cash_out}."});
+            steps.append({"when": "Day 14", "title": "Delivery triage after the cut", "detail": f"Re-scope {ms_name} so {ms} still lands with the smaller team — or slip the date explicitly."});
+        } elif ("hold" in low) {
+            steps.append({"when": "This week", "title": "Hold headcount; re-scope the milestone", "detail": f"Do not open reqs. Re-cut {ms_name} scope so {ms} is still credible without new burn."});
+        } elif ("infra" in low) {
+            steps.append({"when": "This week", "title": "Buy infra/tools instead of headcount", "detail": f"Execute {label}. Cap the tools budget; do not let infra spend become a stealth hire."});
+        } else {
+            steps.append({"when": "This week", "title": "Open the hire with a fully loaded cost sheet", "detail": f"Execute {label}. Put salary + benefits + ramp on one page against cash-out {cash_out}."});
+            steps.append({"when": "Day 30", "title": "Ramp checkpoint", "detail": "If the hire is not shipping against the milestone within 30 days, convert to contractor or freeze the second seat."});
+        }
+        steps.append({"when": pretty_date(str(best.get("milestone_date", ""))), "title": f"Org capacity vs {ms_name}", "detail": f"Headcount only wins if {ms_name} still lands before cash-out {cash_out}."});
+    } elif desk == "launch" or ("ship" in low) or ("release" in low) {
+        if ("slip" in low) or ("delay" in low) {
+            steps.append({"when": "This week", "title": "Publish the slipped ship date and cut scope", "detail": f"Execute {label}. Name the new date; kill non-critical scope so burn does not fund theater."});
+        } elif ("staged" in low) or ("soft" in low) {
+            steps.append({"when": "This week", "title": "Soft-launch to a capped cohort", "detail": f"Execute {label}. Limit seats/customers; measure activation before a public push."});
+        } else {
+            steps.append({"when": "This week", "title": "Lock full launch checklist to the milestone date", "detail": f"Execute {label}. Owners for eng, GTM, and support — no silent slip past {ms}."});
+        }
+        steps.append({"when": "Weekly", "title": "Blocker board", "detail": f"Any blocker that threatens {ms} must show a cash-out impact. Current cash-out on this line: {cash_out}."});
+    } else {
+        # finance default
+        if ("cut" in low) or ("burn" in low) or ("extend" in low) {
+            steps.append({"when": "This week", "title": "Cut discretionary burn on a named list", "detail": f"Execute {label}. List every cut with $/mo. Target leaving cash-out past {ms}."});
+        } elif ("price" in low) {
+            steps.append({"when": "This week", "title": "Ship the price change with a churn kill-switch", "detail": f"Execute {label}. If churn > your rollback threshold in 30 days, reverse. Current MRR ${mrr:,.0f}."});
+        } elif ("raise" in low) {
+            steps.append({"when": "This week", "title": "Open the raise with a cash-out deadline", "detail": f"Execute {label}. Term-sheet target must land well before cash-out {cash_out}."});
+        } else {
+            steps.append({"when": "This week", "title": f"Execute the finance move: {label}", "detail": f"Tie every dollar to cash-out {cash_out} vs milestone {ms}."});
+        }
+        steps.append({"when": "Monthly", "title": "Board-ready runway check", "detail": f"Net burn ~${burn:,.0f}/mo. If runway months drop below your raise lead time, cut or raise — do not wait."});
+    }
+    return steps;
+}
+
+def format_cash_out(best: dict) -> str {
+    if not best { return "—"; }
+    rw = float(best.get("runway_months", 0.0));
+    if rw >= 900.0 {
+        return "cash-flow positive (MRR covers burn)";
+    }
+    return pretty_date(str(best.get("cash_out_date", "")));
+}
+
+def format_runway(best: dict) -> str {
+    if not best { return "—"; }
+    rw = float(best.get("runway_months", 0.0));
+    if rw >= 900.0 {
+        return "cash-flow positive";
+    }
+    return f"{rw:.1f} months";
+}
+
+def build_decision_intel(session: Session, best_id: str, best_full: dict, survivors: list, dead: list, date_line: str, margin_days: int, kill_txt: str) -> dict {
+    decision = extract_decision_line(session.proposal if session.proposal else session.question);
+    desk = primary_desk(session, best_full);
+    move = str(best_full.get("last_action", best_full.get("label", "hold current state"))) if best_full else "hold";
+    cash_out = format_cash_out(best_full);
+    ms_date = pretty_date(str(best_full.get("milestone_date", ""))) if best_full else "—";
+    ms_name = str(best_full.get("milestone", "milestone")) if best_full else "milestone";
+    runway = format_runway(best_full);
+    hit = bool(best_full.get("milestone_hit", False)) if best_full else False;
+    cf_plus = float(best_full.get("runway_months", 0.0)) >= 900.0 if best_full else False;
+    dlow = decision.lower();
+
+    # Clear single answer (the thing founders actually need)
+    dont = "";
+    if dead {
+        d0 = dead[0];
+        dont = f"Do NOT: {str(d0.get('last_action', d0.get('label', d0['id'])))[:48]} — {str(d0.get('kill_reason', ''))[:100]}";
+    }
+    if ("fire" in dlow) or ("layoff" in dlow) {
+        if ("fire" in move.lower()) {
+            do_line = f"YES — {move}. Cut the seats, freeze backfills, and keep burn down through {ms_name}.";
+        } elif ("hold" in move.lower()) or ("lean" in move.lower()) or ("no layoff" in move.lower()) {
+            do_line = f"Prefer lean over a messy layoff theater: {move}. If you still fire, fire for burn — not vibes — and do not rehire.";
+        } else {
+            do_line = f"On firing: the surviving path is «{move}». Do not hire into the hole you just cut.";
+        }
+    } elif ("buy" in dlow) or ("printer" in dlow) or ("equipment" in dlow) or ("purchase" in dlow) {
+        if ("do not buy" in move.lower()) or ("wait" in move.lower()) {
+            do_line = f"NO — do not buy yet. Surviving path: {move}.";
+        } elif ("one" in move.lower()) or ("lease" in move.lower()) {
+            do_line = f"PARTIAL YES — {move}. Do not jump to the full purchase until utilization proves out.";
+        } else {
+            do_line = f"YES — {move}. Fund the gear only if capacity unlocks revenue before {ms_name}.";
+        }
+    } else {
+        do_line = f"DO: {move}.";
+    }
+    if cf_plus and hit {
+        because = f"{ms_name} ({ms_date}) clears because you are cash-flow positive on this path ({runway}).";
+    } elif hit and margin_days > 0 {
+        because = f"{ms_name} ({ms_date}) lands before cash-out ({cash_out}) with {margin_days} days margin · {runway} runway.";
+    } elif hit {
+        because = f"{move} still hits {ms_name} before cash-out ({cash_out}), but margin is thin.";
+    } elif best_full {
+        because = f"Least-bad survivor: cash-out {cash_out} vs {ms_name} {ms_date} — treat as rescue, not green light.";
+    } else {
+        because = "No branch survived hard arithmetic — do not execute the plan as stated.";
+    }
+    one_liner = f"ANSWER: {do_line} {because}";
+    if dont {
+        one_liner = one_liner + f" {dont}";
+    }
+    answer = {
+        "one_liner": one_liner,
+        "do": do_line,
+        "dont": dont if dont else "No single killed foil — compare the tree.",
+        "because": because,
+        "dates": f"Recommended: {cash_out} · Milestone: {ms_name} on {ms_date} · Runway: {runway}",
+        "decision": decision,
+        "move": move,
+        "desk": desk
+    };
+
+    # Verdict prose — what the decision IS
+    prose = one_liner;
+    if best_full and hit and (margin_days > 0 or cf_plus) {
+        prose = (
+            f"On «{decision}», take this path: {move}. "
+            + because
+        );
+    } elif best_full and hit {
+        prose = (
+            f"On «{decision}», {move} is the only line that still hits {ms_name} before cash-out {cash_out}. "
+            + "Margin is thin — execute exactly, do not add spend."
+        );
+    } elif best_full {
+        prose = (
+            f"On «{decision}», {move} is the least-bad survivor (cash-out {cash_out}), "
+            + f"but {ms_name} ({ms_date}) is not safely cleared. Treat this as a rescue plan, not a green light."
+        );
+    } else {
+        prose = f"On «{decision}», no branch survived hard arithmetic. Do not execute the plan as stated — cut scope or spend first.";
+    }
+
+    analysis_bits: list = [];
+    analysis_bits.append(f"Decision under test: {decision}.");
+    analysis_bits.append(f"Desk: {desk}. Recommended branch {best_id} → {move}.");
+    if best_full {
+        analysis_bits.append(
+            f"Arithmetic: cash-out {cash_out} vs milestone {ms_date}"
+            + (f" (margin {margin_days} days, milestone HIT)." if hit and margin_days > 0 and not cf_plus else (" (cash-flow positive, milestone HIT)." if hit and cf_plus else (" (milestone HIT, thin margin)." if hit else " (milestone MISS on this line)."))
+            )
+        );
+    }
+    if len(survivors) >= 2 {
+        runner = survivors[1];
+        analysis_bits.append(
+            f"Runner-up {runner.get('branch_id')} ({str(runner.get('action') or runner.get('label', ''))[:40]}) "
+            + f"cash-out {pretty_date(str(runner.get('cash_out_date', '')))} — worse on runway + milestone rank."
+        );
+    }
+    if dead {
+        d0 = dead[0];
+        analysis_bits.append(
+            f"Killed alternative: {str(d0.get('last_action', d0.get('label', d0['id'])))[:48]} — {str(d0.get('kill_reason', ''))[:140]}"
+        );
+        if len(dead) > 1 {
+            analysis_bits.append(f"{len(dead)} forks failed verifier checks (dates, not opinions).");
+        }
+    }
+    analysis = " ".join(analysis_bits);
+
+    # Action plan: desk playbook + avoids + calendar gates
+    steps = desk_playbook_steps(desk, move, decision, best_full if best_full else {}, session.company);
+    seen_avoid: set = set();
+    move_low = move.lower();
+    for d in dead {
+        if len(seen_avoid) >= 3 { break; }
+        title_key = str(d.get("last_action", d.get("label", d["id"])))[:48];
+        # Never "avoid" the same move we just recommended.
+        if title_key.lower() == move_low or (move_low and move_low in title_key.lower()) {
+            continue;
+        }
+        if d.get("kill_reason") and title_key not in seen_avoid {
+            seen_avoid.add(title_key);
+            steps.append({
+                "when": "Avoid",
+                "title": f"Do not: {title_key}",
+                "detail": f"{str(d.get('kill_reason', ''))[:160]} — that path loses the date race."
+            });
+        }
+    }
+    best_cash_out = str(best_full.get("cash_out_date", "")) if best_full else "";
+    best_ms_date = str(best_full.get("milestone_date", "")) if best_full else "";
+    if best_full and float(best_full.get("runway_months", 99.0)) < 9.0 and best_cash_out {
+        raise_by = add_days(best_cash_out, -90);
+        steps.append({
+            "when": pretty_date(raise_by),
+            "title": "Start raise conversations or cut burn",
+            "detail": f"Lead time: begin ~3 months before cash-out {pretty_date(best_cash_out)}. Waiting until empty is how startups die."
+        });
+    }
+    if best_ms_date {
+        co_txt = cash_out if cf_plus else pretty_date(best_cash_out);
+        steps.append({
+            "when": pretty_date(best_ms_date),
+            "title": f"Hard gate: {ms_name}",
+            "detail": (
+                f"Must land while the recommended path stays solvent — {co_txt}; margin {margin_days} days."
+                if margin_days > 0 or cf_plus
+                else f"Cash-out {pretty_date(best_cash_out)} is not safely after this milestone — only proceed if the milestone unlocks cash immediately."
+            )
+        });
+    }
+
+    # Watch-fors from Red attacks + desk
+    watch_bits: list = [];
+    for a in session.attacks[-3:] {
+        watch_bits.append(str(a.get("claim", ""))[:110]);
+    }
+    if desk == "publicity" {
+        watch_for = "Kill signal: CAC up or conversion flat for 2 weeks while burn stays elevated. " + (" Red warned: " + " | ".join(watch_bits) if watch_bits else "");
+    } elif ("buy" in dlow) or ("printer" in dlow) or ("equipment" in dlow) {
+        watch_for = "Kill signal: printers idle or jobs not filling new capacity within 30 days. " + (" Red warned: " + " | ".join(watch_bits) if watch_bits else "");
+    } elif desk == "management" {
+        watch_for = "Kill signal: hire burn up with no milestone velocity in 30 days. " + (" Red warned: " + " | ".join(watch_bits) if watch_bits else "");
+    } elif desk == "launch" {
+        watch_for = "Kill signal: ship date slips twice or critical path has no owner. " + (" Red warned: " + " | ".join(watch_bits) if watch_bits else "");
+    } else {
+        watch_for = "Kill signal: runway months drop or raise timeline slips while burn holds. " + (" Red warned: " + " | ".join(watch_bits) if watch_bits else "");
+    }
+
+    open_risks = f"Unmitigated Red pressure on the recommended line; re-run if spend or dates change. Desk={desk}.";
+    if not kill_txt or "No hard kill" in kill_txt {
+        # Prefer concrete dead-branch kills
+        kill_parts: list = [];
+        for d in dead[:3] {
+            if d.get("kill_reason") {
+                kill_parts.append(f"{str(d.get('last_action', d['id']))[:40]}: {str(d.get('kill_reason'))[:100]}");
+            }
+        }
+        kill_out = "; ".join(kill_parts) if kill_parts else "No hard kill shots on the recommended line — watch the Red claims anyway.";
+    } else {
+        kill_out = kill_txt;
+    }
+
+    title = f"Verdict: {move}" if move else "Decision memo";
+    return {
+        "title": title,
+        "prose": prose,
+        "analysis": analysis,
+        "watch_for": watch_for.strip(),
+        "action_plan": steps,
+        "kill_shots": kill_out,
+        "open_risks": open_risks,
+        "answer": answer
+    };
+}
+
 def arbiter(session: Session) {
     score_all(session);
     leaves = alive_leaves(session);
@@ -532,27 +895,24 @@ def arbiter(session: Session) {
     for s in alive_cards {
         survivors.append(s);
     }
+
+    # Date line always matches the RECOMMENDED branch (not a random survivor foil).
     date_line = "";
-    if len(survivors) >= 2 {
-        a = survivors[0];
-        b = survivors[1];
-        date_line = (
-            f"{str(a.get('action') or a.get('label', 'Plan A'))[:44]}: cash-out {pretty_date(str(a.get('cash_out_date', '')))}. "
-            + f"{str(b.get('action') or b.get('label', 'Plan B'))[:44]}: cash-out {pretty_date(str(b.get('cash_out_date', '')))}."
-        );
-    } elif survivors {
-        a = survivors[0];
+    if best_full {
+        move_l = str(best_full.get("last_action", best_full.get("label", "recommended")));
+        co = format_cash_out(best_full);
+        ms = pretty_date(str(best_full.get("milestone_date", "")));
         dead_foil = "";
         for br in session.branches {
-            if not br.get("alive", True) and br.get("cash_out_date") {
+            if not br.get("alive", True) and br.get("kill_reason") {
                 dead_foil = (
-                    f"Killed plan runs out {pretty_date(str(br.get('cash_out_date', '')))} "
-                    + f"(before milestone {pretty_date(str(br.get('milestone_date', '')))})."
+                    f"Killed alternative «{str(br.get('last_action', br.get('label', br['id'])))[:36]}» "
+                    + f"runs out {pretty_date(str(br.get('cash_out_date', '')))}."
                 );
                 break;
             }
         }
-        date_line = f"Survivor cash-out {pretty_date(str(a.get('cash_out_date', '')))}. " + (dead_foil if dead_foil else "");
+        date_line = f"Recommended «{move_l}»: {co} vs milestone {ms}. " + (dead_foil if dead_foil else "");
     } else {
         date_line = "No surviving plans — every branch failed hard arithmetic.";
     }
@@ -580,7 +940,7 @@ def arbiter(session: Session) {
             dead.append(b);
         }
     }
-    dissent = prose.dissent;
+    dissent = prose.dissent if prose.dissent else "Competing forks lost on cash-out vs milestone.";
     if dead {
         bits: list = [];
         for d in dead[:4] {
@@ -605,100 +965,31 @@ def arbiter(session: Session) {
         }
     }
 
-    # ---- Decision analysis + plan of action (deterministic; LLM narrates when live) ----
-    path_moves: list = [];
-    cur = best_full;
-    while cur and cur.get("parent_id") {
-        if cur.get("side_created") == "blue" and cur.get("last_action") {
-            path_moves.insert(0, cur);
-        }
-        cur = branch_by_id(session, str(cur.get("parent_id", "")));
-    }
-
-    steps: list = [];
-    for mv in path_moves {
-        par = branch_by_id(session, str(mv.get("parent_id", "")));
-        delta = float(mv.get("monthly_burn", 0.0)) - float(par.get("monthly_burn", 0.0)) if par else 0.0;
-        delta_txt = f"+${delta:,.0f}/mo burn" if delta > 0 else (f"saves ${-delta:,.0f}/mo" if delta < 0 else "burn unchanged");
-        steps.append({
-            "when": "Now",
-            "title": f"Execute: {mv.get('last_action', mv.get('move', ''))}",
-            "detail": f"{delta_txt} — cash-out moves to {pretty_date(str(mv.get('cash_out_date', '')))}."
-        });
-    }
-    if not steps and best_full {
-        steps.append({
-            "when": "Now",
-            "title": "Hold the current plan",
-            "detail": f"Seed state already survives to {pretty_date(str(best_full.get('cash_out_date', '')))}."
-        });
-    }
-
-    seen_avoid: set = set();
-    for d in dead {
-        if len(seen_avoid) >= 3 {
-            break;
-        }
-        title_key = str(d.get("last_action", d.get("label", d["id"])))[:48];
-        if d.get("kill_reason") and title_key not in seen_avoid {
-            seen_avoid.add(title_key);
-            steps.append({
-                "when": "Avoid",
-                "title": f"Do not take the {title_key} path",
-                "detail": f"Killed: {str(d.get('kill_reason', ''))[:120]}"
-            });
-        }
-    }
-
-    best_cash_out = str(best_full.get("cash_out_date", "")) if best_full else "";
-    best_ms_date = str(best_full.get("milestone_date", "")) if best_full else "";
     margin_days = 0;
-    if best_cash_out and best_ms_date {
-        margin_days = days_between(best_ms_date, best_cash_out);
-    }
-    if best_full and float(best_full.get("runway_months", 99.0)) < 9.0 and best_cash_out {
-        raise_by = add_days(best_cash_out, -90);
-        steps.append({
-            "when": pretty_date(raise_by),
-            "title": "Start the raise (or cut burn)",
-            "detail": f"3 months before cash-out {pretty_date(best_cash_out)}; do not start a fundraise with less runway than that."
-        });
-    }
-    if best_ms_date {
-        steps.append({
-            "when": pretty_date(best_ms_date),
-            "title": f"Milestone checkpoint: {str(best_full.get('milestone', 'milestone')) if best_full else 'milestone'}",
-            "detail": (
-                f"Must land before cash-out {pretty_date(best_cash_out)} — margin {margin_days} days."
-                if margin_days > 0
-                else f"Cash-out {pretty_date(best_cash_out)} lands first — this line only works if the milestone unlocks cash."
-            )
-        });
-    }
-
-    analysis_bits: list = [];
     if best_full {
-        analysis_bits.append(
-            f"Recommended {best_id} ({str(best_full.get('last_action', 'seed state'))}) survives to {pretty_date(best_cash_out)}"
-            + (f", clearing the milestone by {margin_days} days." if margin_days > 0 else ".")
-        );
+        bc = str(best_full.get("cash_out_date", ""));
+        bm = str(best_full.get("milestone_date", ""));
+        if bc and bm {
+            margin_days = days_between(bm, bc);
+        }
     }
-    if len(survivors) >= 2 {
-        runner = survivors[1];
-        analysis_bits.append(
-            f"Next-best {runner.get('branch_id')} cash-out {pretty_date(str(runner.get('cash_out_date', '')))} — "
-            + f"ranked below on runway + milestone."
-        );
-    }
-    if dead {
-        analysis_bits.append(f"{len(dead)} branch(es) failed hard arithmetic — killed by verifiers, not opinion.");
-    }
-    if decomp["unmitigated_attacks"] > 0 {
-        analysis_bits.append(f"{decomp['unmitigated_attacks']} Red attack(s) on this line remain unmitigated — see plan.");
-    }
-    analysis = " ".join(analysis_bits);
-    watch_for = "";
 
+    # ---- Decision analysis + plan of action (desk playbooks + verified dates) ----
+    intel = build_decision_intel(session, best_id, best_full, survivors, dead, date_line, margin_days, kill_txt);
+
+    # Prefer engineered intel for custom; allow cached/LLM prose only when it has content.
+    analysis = intel["analysis"];
+    watch_for = intel["watch_for"];
+    steps = intel["action_plan"];
+    memo_prose = prose.recommended_reason if prose.recommended_reason else intel["prose"];
+    memo_title = prose.title if (prose.title and prose.title != "Decision memo" and session.fixture_id != "custom") else intel["title"];
+    memo_kills = kill_txt if (kill_txt and "No hard kill" not in kill_txt) else intel["kill_shots"];
+    if prose.kill_shots and session.fixture_id != "custom" and not str(prose.kill_shots).strip().startswith("[") {
+        memo_kills = prose.kill_shots;
+    }
+    memo_risks = prose.open_risks if prose.open_risks else intel["open_risks"];
+
+    # Optional LLM polish — only if it returns non-empty (custom returns empty offline).
     steps_txt_parts: list = [];
     for st in steps {
         steps_txt_parts.append(f"[{st['when']}] {st['title']} — {st['detail']}");
@@ -713,24 +1004,27 @@ def arbiter(session: Session) {
 
     session.memo = {
         "recommended_branch_id": best_id,
-        "title": prose.title,
-        "prose": prose.recommended_reason,
-        "kill_shots": prose.kill_shots or kill_txt,
-        "open_risks": prose.open_risks,
+        "title": memo_title,
+        "prose": memo_prose,
+        "kill_shots": memo_kills,
+        "open_risks": memo_risks,
         "dissent": dissent,
         "date_line": date_line,
         "decomposition": decomp,
         "analysis": analysis,
         "watch_for": watch_for,
         "action_plan": steps,
-        "baseline_foil": session.baseline
+        "baseline_foil": session.baseline,
+        "decision": extract_decision_line(session.proposal if session.proposal else session.question),
+        "desk": primary_desk(session, best_full),
+        "answer": intel.get("answer", {})
     };
     log_event(session, "arbiter", f"Recommended {best_id}: {date_line}", best_id);
     osp_put_memo(session.memo);
 }
 
-def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, run_baseline: bool = True, company_overrides: dict = {}) -> dict {
-    session = seed_session(proposal, fixture_id, rounds, company_overrides);
+def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, run_baseline: bool = True, company_overrides: dict = {}, areas: list = []) -> dict {
+    session = seed_session(proposal, fixture_id, rounds, company_overrides, areas);
     if run_baseline {
         session.baseline = baseline_plan(proposal if proposal else session.question, fixture_id);
     }
@@ -780,6 +1074,8 @@ def session_to_dict(session: Session) -> dict {
         "question": session.question,
         "title": session.title,
         "domain": session.domain,
+        "areas": session.areas,
+        "modules": session.areas,
         "company": session.company,
         "branches": session.branches,
         "edges": session.edges,

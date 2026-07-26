@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/ui/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js" defer></script>
   <script src="/ui/schema.js" defer></script>
-  <script src="/ui/app.js" defer></script>
+  <script src="/ui/app.js?v=biz2" defer></script>
 </head>
 <body>
   <div class="fog" aria-hidden="true"></div>
@@ -20,12 +20,13 @@
       <p class="eyebrow">Founder decision platform · Jac walkers · deterministic verifiers</p>
       <h1>SplitHorizon</h1>
       <p class="lede">
-        Tell us the plan you’re about to make. We’ll ask only what’s needed to simulate
-        cash-out vs your milestone — then Blue and Red fight over the futures.
+        Choose the desk you’re consulting — Finance, Management, Launch, or Publicity —
+        then we simulate cash-out vs your milestone with agents specialized to that desk.
       </p>
       <div class="hero-actions-row">
         <button type="button" class="run-btn hero-cta" id="cta-start">Simulate my decision</button>
         <button type="button" class="ghost-btn" id="cta-business">Add your business</button>
+        <button type="button" class="ghost-btn" id="cta-quick" hidden>Quick simulate</button>
         <button type="button" class="ghost-btn" id="cta-demo">Try the hire × launch demo</button>
       </div>
       <p class="signed-in mono" id="signed-in-chip" hidden></p>
@@ -40,16 +41,16 @@
       <div class="compare-col strong">
         <p class="compare-kicker">SplitHorizon</p>
         <p class="pipeline mono">Your plan → Adaptive intake → Blue/Red → Date</p>
-        <p>Three modules only (hire · launch · runway). One spine: survival.</p>
+        <p>Four consult desks. Desk-specific Blue/Red agents. One spine: survival.</p>
       </div>
     </div>
 
     <ol class="mvp-steps">
-      <li><span class="step-n">1 · Plan</span><h3>You start</h3><p>One sentence: the action you’re tempted to take.</p></li>
-      <li><span class="step-n">2 · Intake</span><h3>We ask back</h3><p>Only the missing numbers for cash-out vs milestone.</p></li>
-      <li><span class="step-n">3 · Modules</span><h3>Hire · Launch · Runway</h3><p>Whichever your plan touches — not eleven calculators.</p></li>
-      <li><span class="step-n">4 · Blue</span><h3>Defend</h3><p>Jac walker proposes moves as effect tags — never invents figures.</p></li>
-      <li><span class="step-n">5 · Red</span><h3>Attack</h3><p>Stress the plan; verifiers kill with visible dates.</p></li>
+      <li><span class="step-n">1 · Desk</span><h3>Pick your area</h3><p>Finance · Management · Launch · Publicity — agents specialize to the desk.</p></li>
+      <li><span class="step-n">2 · Plan</span><h3>State the move</h3><p>One sentence: the action you’re tempted to take.</p></li>
+      <li><span class="step-n">3 · Intake</span><h3>We ask back</h3><p>Only the missing numbers for cash-out vs milestone.</p></li>
+      <li><span class="step-n">4 · Blue</span><h3>Desk defends</h3><p>Area agents propose moves as effect tags — never invent figures.</p></li>
+      <li><span class="step-n">5 · Red</span><h3>Desk attacks</h3><p>Matching Red agents stress the plan; verifiers kill with dates.</p></li>
       <li><span class="step-n">6 · Date</span><h3>Arbiter</h3><p>Which future keeps you alive past the milestone?</p></li>
     </ol>
   </section>
@@ -59,15 +60,33 @@
     <div class="wizard-shell business-shell">
       <button type="button" class="text-btn" id="business-back">← Back</button>
       <p class="eyebrow">Your business</p>
-      <h2>Sign in to your business</h2>
-      <p class="lede tight">Save your company state once — every simulation starts from it and the intake skips what we already know.</p>
+      <h2>Add your business</h2>
+      <p class="lede tight">Save what you do once — optionally scan your website so SplitHorizon remembers product context for every decision.</p>
 
       <div id="profile-list" class="profile-list"></div>
+      <div id="biz-chats" class="biz-chats" hidden>
+        <p class="divider-label">Saved decisions for this business</p>
+        <div id="biz-chat-list" class="biz-chat-list"></div>
+      </div>
+      <div class="biz-actions" id="biz-selected-actions" hidden>
+        <button type="button" class="run-btn" id="biz-use">Continue with this business</button>
+        <button type="button" class="ghost-btn" id="biz-delete-selected">Delete this business</button>
+      </div>
       <p class="divider-label" id="profile-divider" hidden>or add a new one</p>
 
       <form id="business-form" class="business-form">
-        <label>Business name<input id="biz-name" type="text" placeholder="e.g. Northline" required /></label>
-        <label>What does it do? (one sentence)<input id="biz-describe" type="text" placeholder="e.g. B2B SaaS for clinics, $99/mo per seat" /></label>
+        <label>Business name<input id="biz-name" type="text" placeholder="e.g. CHEHRA" required /></label>
+        <label>Website
+          <div class="url-row">
+            <input id="biz-website" type="url" placeholder="https://yourstartup.com" />
+            <button type="button" class="ghost-btn" id="biz-scan">Scan site</button>
+          </div>
+        </label>
+        <div id="biz-scan-preview" class="scan-preview" hidden></div>
+        <label>What does the business do?
+          <textarea id="biz-describe" rows="3" placeholder="Who pays you, what you sell, and why it matters. Scan fills this when it can."></textarea>
+        </label>
+        <label class="check"><input type="checkbox" id="biz-quick" /> Quick mode — remember numbers &amp; skip long intake next time</label>
         <div class="form-row">
           <label>Cash in bank (USD)<input id="biz-cash" type="number" placeholder="120000" required /></label>
           <label>Monthly net burn (USD)<input id="biz-burn" type="number" placeholder="42000" required /></label>
@@ -81,7 +100,10 @@
           <label>Milestone<input id="biz-milestone" type="text" placeholder="Public launch" /></label>
           <label>Milestone date<input id="biz-milestone-date" type="date" /></label>
         </div>
-        <button type="submit" class="run-btn">Save &amp; continue</button>
+        <div class="biz-actions">
+          <button type="submit" class="run-btn" id="biz-save">Save &amp; continue</button>
+          <button type="button" class="ghost-btn" id="biz-save-quick">Save &amp; quick simulate</button>
+        </div>
         <p id="business-status" class="status" role="status"></p>
       </form>
     </div>
@@ -91,13 +113,18 @@
   <section id="view-intake" class="view intake" hidden>
     <div class="wizard-shell intake-shell">
       <button type="button" class="text-btn" id="intake-back">← Back</button>
-      <p class="eyebrow" id="intake-kicker">Step 1 · Your plan</p>
-      <h2 id="intake-title">What’s the plan of action?</h2>
-      <p class="lede tight" id="intake-help">One sentence is enough. We’ll figure out which modules apply.</p>
+      <p class="eyebrow" id="intake-kicker">Step 1 · Consult desk</p>
+      <h2 id="intake-title">What are you consulting on?</h2>
+      <p class="lede tight" id="intake-help">Pick one or more desks. Each desk runs its own Blue/Red agent pair on your plan.</p>
 
       <div id="intake-plan-block">
+        <div class="area-grid" id="area-grid" role="group" aria-label="Consult desks"></div>
+        <label class="plan-label" for="intake-plan">What’s the plan of action?</label>
         <textarea id="intake-plan" rows="3" maxlength="500"
-          placeholder="e.g. Hire two engineers so we can still hit the October launch"></textarea>
+          placeholder="e.g. Spend $30k on Instagram ads this month"></textarea>
+        <label class="check" id="intake-quick-wrap" hidden>
+          <input type="checkbox" id="intake-quick" /> Quick mode — use saved business numbers, skip the long Q&amp;A
+        </label>
         <div class="module-pills" id="module-pills" hidden></div>
         <button type="button" class="run-btn" id="intake-plan-next">Continue</button>
       </div>
@@ -125,6 +152,26 @@
       <p class="eyebrow">Kill shot · verifier</p>
       <h3 id="kill-callout-title">Branch killed</h3>
       <p id="kill-callout-body" class="mono"></p>
+    </div>
+
+    <div class="clear-answer" id="clear-answer" hidden>
+      <p class="eyebrow">Straight answer</p>
+      <h2 id="answer-do">—</h2>
+      <p id="answer-because" class="answer-because"></p>
+      <div class="answer-grid">
+        <div>
+          <p class="answer-label">Decision</p>
+          <p id="answer-do-detail"></p>
+        </div>
+        <div>
+          <p class="answer-label">Don’t</p>
+          <p id="answer-dont"></p>
+        </div>
+        <div class="answer-dates">
+          <p class="answer-label">Dates</p>
+          <p id="answer-dates" class="mono"></p>
+        </div>
+      </div>
     </div>
 
     <div class="schema-rail" id="schema-rail">
@@ -161,19 +208,35 @@
         <button type="button" class="run-btn" id="run">Fork futures</button>
         <p id="status" class="status" role="status"></p>
         <label class="check"><input type="checkbox" id="baseline" checked /> Show chatbot foil</label>
+
+        <div class="outcome-panel" id="outcome-panel" hidden>
+          <p class="eyebrow">Follow-through</p>
+          <h3>Did you go through with this?</h3>
+          <p id="outcome-prompt" class="outcome-prompt"></p>
+          <label class="outcome-note-label">Optional note
+            <textarea id="outcome-note" rows="2" placeholder="e.g. Bought one printer first"></textarea>
+          </label>
+          <div class="outcome-actions">
+            <button type="button" class="run-btn" id="outcome-yes">Yes</button>
+            <button type="button" class="ghost-btn" id="outcome-no">No</button>
+            <button type="button" class="text-btn" id="outcome-skip">Later</button>
+          </div>
+          <p id="outcome-status" class="status" role="status"></p>
+        </div>
       </aside>
 
       <div class="viz-shell">
         <div class="viz-toolbar">
           <div>
-            <h2>Futures</h2>
-            <p id="run-meta" class="meta">Dead branches failed hard arithmetic.</p>
+            <h2>Futures tree</h2>
+            <p id="run-meta" class="meta">Each card is a branch — click one to see why it lives or dies.</p>
           </div>
           <div class="playback" id="playback" hidden>
-            <button type="button" id="btn-reset">↺</button>
-            <button type="button" id="btn-play">▶</button>
+            <button type="button" id="btn-reset" title="Replay from seed">↺</button>
+            <button type="button" id="btn-play" title="Replay walk">▶</button>
             <input id="scrub" type="range" min="0" max="0" value="0" />
             <span id="scrub-label" class="mono">0 / 0</span>
+            <button type="button" class="ghost-mini" id="btn-fit" title="Fit tree">Fit</button>
           </div>
         </div>
         <div class="viz-stage" id="viz-stage">
@@ -182,17 +245,20 @@
             <button type="button" class="close-insp" id="close-insp">×</button>
             <p class="insp-kicker" id="insp-kicker">Branch</p>
             <h3 id="insp-title">—</h3>
+            <p class="insp-verdict" id="insp-verdict"></p>
             <dl id="insp-stats" class="stats"></dl>
             <p id="insp-summary" class="insp-body"></p>
             <div id="insp-kill" class="kill-box" hidden></div>
+            <div id="insp-win" class="win-box" hidden></div>
             <h4>Evidence</h4>
             <ul id="insp-tools" class="find-list"></ul>
           </aside>
         </div>
+        <div class="branch-outline" id="branch-outline" hidden></div>
         <div class="legend-row">
           <span class="lg seed">Seed</span>
-          <span class="lg blue">Blue</span>
-          <span class="lg red">Red</span>
+          <span class="lg blue">Blue move</span>
+          <span class="lg red">Red attack</span>
           <span class="lg dead">Killed</span>
           <span class="lg pick">Recommended</span>
         </div>
