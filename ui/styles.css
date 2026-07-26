@@ -474,6 +474,35 @@ body {
 .biz-chat-card .outcome-tag.yes { color: var(--teal-deep); background: var(--teal-soft); }
 .biz-chat-card .outcome-tag.no { color: var(--signal-deep); background: var(--signal-soft); }
 .biz-chat-card .outcome-tag.pending { color: var(--muted); }
+.biz-chat-note { margin: 0.4rem 0 0; font-size: 0.86rem; color: var(--muted); }
+.biz-chat-follow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.65rem;
+}
+.biz-chat-note-input {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.biz-chat-yes,
+.biz-chat-no {
+  width: auto !important;
+  margin: 0 !important;
+  padding: 0.45rem 0.75rem !important;
+  font-size: 0.82rem !important;
+}
+.biz-chat-reset {
+  margin: 0;
+  font-size: 0.78rem;
+}
 
 .divider-label {
   margin: 1.1rem 0 0.7rem;

@@ -201,18 +201,59 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       return;
     }
     wrap.hidden = false;
-    list.innerHTML = chats.slice(0, 12).map((c) => {
+    list.innerHTML = "";
+    chats.slice(0, 12).forEach((c) => {
       const o = c.outcome || {};
+      const pending = o.went_through === null || o.went_through === undefined;
+      const card = document.createElement("article");
+      card.className = "biz-chat-card";
       let tag = `<span class="outcome-tag pending">Pending follow-through</span>`;
       if (o.went_through === true) tag = `<span class="outcome-tag yes">Went through</span>`;
       else if (o.went_through === false) tag = `<span class="outcome-tag no">Did not go through</span>`;
-      const note = o.note ? `<p>${escapeHtml(o.note)}</p>` : "";
-      return `<article class="biz-chat-card">
+      const note = o.note ? `<p class="biz-chat-note">${escapeHtml(o.note)}</p>` : "";
+      card.innerHTML = `
         <strong>${escapeHtml(c.plan || "Decision")}</strong>
         <p class="mono">${escapeHtml(c.recommended || c.date_line || "—")} · ${escapeHtml((c.created_at || "").slice(0, 10) || "—")}</p>
         ${tag}${note}
-      </article>`;
-    }).join("");
+        <div class="biz-chat-follow" data-chat-id="${escapeHtml(c.id || "")}"></div>`;
+      const follow = card.querySelector(".biz-chat-follow");
+      if (pending && c.id) {
+        const noteIn = document.createElement("input");
+        noteIn.type = "text";
+        noteIn.className = "biz-chat-note-input";
+        noteIn.placeholder = "Optional note";
+        const yes = document.createElement("button");
+        yes.type = "button";
+        yes.className = "run-btn biz-chat-yes";
+        yes.textContent = "Yes, I did";
+        const no = document.createElement("button");
+        no.type = "button";
+        no.className = "ghost-btn biz-chat-no";
+        no.textContent = "No, I didn’t";
+        yes.addEventListener("click", async () => {
+          yes.disabled = true;
+          no.disabled = true;
+          await submitOutcome(true, c.id, noteIn.value.trim());
+          renderBizChats(state.profile);
+        });
+        no.addEventListener("click", async () => {
+          yes.disabled = true;
+          no.disabled = true;
+          await submitOutcome(false, c.id, noteIn.value.trim());
+          renderBizChats(state.profile);
+        });
+        follow.appendChild(noteIn);
+        follow.appendChild(yes);
+        follow.appendChild(no);
+      } else if (!pending) {
+        follow.innerHTML = `<button type="button" class="text-btn biz-chat-reset">Change answer</button>`;
+        follow.querySelector(".biz-chat-reset")?.addEventListener("click", async () => {
+          await submitOutcome(null, c.id, "");
+          renderBizChats(state.profile);
+        });
+      }
+      list.appendChild(card);
+    });
   }
 
   async function deleteBusiness(p) {
@@ -1636,14 +1677,20 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
   }
 
-  async function submitOutcome(wentThrough) {
+  async function submitOutcome(wentThrough, chatId = null, noteOverride = null) {
     const profile = state.profile || (await ensureProfileSynced());
-    if (!profile || !activeChatId) {
+    const cid = chatId || activeChatId;
+    if (!profile || !cid) {
       if ($("outcome-status")) $("outcome-status").textContent = "Sign in with a business first so this can be saved.";
+      if ($("business-status")) $("business-status").textContent = "Select a business first, then mark Yes / No on a saved decision.";
       return;
     }
-    const note = ($("outcome-note") && $("outcome-note").value.trim()) || "";
-    $("outcome-status").textContent = "Saving…";
+    const note =
+      noteOverride != null
+        ? noteOverride
+        : (($("outcome-note") && $("outcome-note").value.trim()) || "");
+    if ($("outcome-status")) $("outcome-status").textContent = "Saving…";
+    if ($("business-status")) $("business-status").textContent = "Saving follow-through…";
     try {
       const res = await fetch("/api/chats/outcome", {
         method: "POST",
@@ -1651,7 +1698,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
         body: JSON.stringify({
           business_id: profile.id || "",
           name: profile.name || "",
-          chat_id: activeChatId,
+          chat_id: cid,
           went_through: wentThrough,
           note,
         }),
@@ -1659,13 +1706,30 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       const out = await res.json();
       if (!res.ok || out.error) throw new Error(out.error || "Save failed");
       if (out.profile) setProfile(out.profile);
-      const label = wentThrough ? "Went through — saved" : "Did not go through — saved";
-      $("outcome-status").textContent = `${label}. Next chats for ${profile.name} will use this.`;
-      ["outcome-yes", "outcome-no"].forEach((id) => {
-        if ($(id)) $(id).disabled = true;
-      });
+      let label = "Follow-through cleared — pending again.";
+      if (wentThrough === true) label = "Went through — saved";
+      else if (wentThrough === false) label = "Did not go through — saved";
+      if ($("outcome-status")) {
+        $("outcome-status").textContent = `${label}. Next chats for ${profile.name} will use this.`;
+      }
+      if ($("business-status")) {
+        $("business-status").textContent = `${label} for ${profile.name}.`;
+      }
+      if (wentThrough !== null) {
+        ["outcome-yes", "outcome-no"].forEach((id) => {
+          if ($(id)) $(id).disabled = true;
+        });
+      } else {
+        ["outcome-yes", "outcome-no"].forEach((id) => {
+          if ($(id)) $(id).disabled = false;
+        });
+      }
+      if (cid === activeChatId && wentThrough !== null && $("outcome-panel")) {
+        // keep panel visible with confirmation
+      }
     } catch (err) {
-      $("outcome-status").textContent = `Error: ${err.message || err}`;
+      if ($("outcome-status")) $("outcome-status").textContent = `Error: ${err.message || err}`;
+      if ($("business-status")) $("business-status").textContent = `Follow-through error: ${err.message || err}`;
     }
   }
 
