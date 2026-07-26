@@ -1,0 +1,220 @@
+{
+  "nodes": [
+    {
+      "id": "WorldEntity",
+      "role": "memory",
+      "blurb": "Actor, asset, or location in the seeded world.",
+      "fields": [
+        "entity_id",
+        "kind",
+        "name",
+        "capacity",
+        "status",
+        "attrs_json"
+      ]
+    },
+    {
+      "id": "Constraint",
+      "role": "rule",
+      "blurb": "Hard/soft rule Blue must satisfy and Red tries to break.",
+      "fields": [
+        "constraint_id",
+        "rule",
+        "description",
+        "hard",
+        "limit_value",
+        "unit"
+      ]
+    },
+    {
+      "id": "Goal",
+      "role": "rule",
+      "blurb": "Success metric the Arbiter scores against.",
+      "fields": [
+        "goal_id",
+        "description",
+        "metric",
+        "target_value",
+        "weight"
+      ]
+    },
+    {
+      "id": "Action",
+      "role": "blue",
+      "blurb": "Blue intervention applied onto a Branch.",
+      "fields": [
+        "action_id",
+        "who",
+        "what",
+        "when_label",
+        "cost",
+        "round_no",
+        "side"
+      ]
+    },
+    {
+      "id": "Stressor",
+      "role": "red",
+      "blurb": "Red adversarial event injected into a Branch.",
+      "fields": [
+        "stressor_id",
+        "description",
+        "severity",
+        "likelihood",
+        "target_ref",
+        "tag"
+      ]
+    },
+    {
+      "id": "Branch",
+      "role": "core",
+      "blurb": "Counterfactual world fork \u2014 the thing you watch grow.",
+      "fields": [
+        "branch_id",
+        "label",
+        "parent_id",
+        "round_no",
+        "alive",
+        "spent",
+        "residual_risk",
+        "goal_coverage",
+        "kill_reason"
+      ]
+    },
+    {
+      "id": "Tool",
+      "role": "tool",
+      "blurb": "Visit-able capability node (BudgetCalc, ConstraintCheck, ScenarioInject).",
+      "fields": [
+        "name",
+        "schema_desc"
+      ]
+    },
+    {
+      "id": "Finding",
+      "role": "memory",
+      "blurb": "Claim Blue/Red wrote, tied to tool evidence.",
+      "fields": [
+        "finding_id",
+        "side",
+        "claim",
+        "evidence",
+        "confidence"
+      ]
+    },
+    {
+      "id": "Scorecard",
+      "role": "core",
+      "blurb": "Numeric rank for a Branch after ScoreWalker.",
+      "fields": [
+        "branch_id",
+        "residual_risk",
+        "goal_coverage",
+        "cost",
+        "uncertainty",
+        "rank_score"
+      ]
+    },
+    {
+      "id": "Memo",
+      "role": "core",
+      "blurb": "Arbiter decision write-up for the surviving branch.",
+      "fields": [
+        "recommended_branch_id",
+        "title",
+        "prose",
+        "kill_shots",
+        "open_risks",
+        "dissent"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "forked_from",
+      "from": "Branch",
+      "to": "Branch",
+      "blurb": "Parent \u2192 child counterfactual lineage (via blue|red)."
+    },
+    {
+      "id": "in_branch",
+      "from": "WorldEntity",
+      "to": "Branch",
+      "blurb": "Entity exists inside a Branch world-state."
+    },
+    {
+      "id": "targets",
+      "from": "Action",
+      "to": "WorldEntity",
+      "blurb": "Action aims at an entity or constraint."
+    },
+    {
+      "id": "violates",
+      "from": "Stressor",
+      "to": "Constraint",
+      "blurb": "Red event breaks a hard rule."
+    },
+    {
+      "id": "mitigates",
+      "from": "Action",
+      "to": "Stressor",
+      "blurb": "Blue patch addresses a prior kill shot."
+    },
+    {
+      "id": "uses_tool",
+      "from": "Finding",
+      "to": "Tool",
+      "blurb": "Claim grounded by a tool visit mid-traversal."
+    },
+    {
+      "id": "supports",
+      "from": "Finding",
+      "to": "Action",
+      "blurb": "Blue evidence for a plan."
+    },
+    {
+      "id": "attacks",
+      "from": "Finding",
+      "to": "Action",
+      "blurb": "Red evidence against a plan."
+    },
+    {
+      "id": "derived_from",
+      "from": "Action",
+      "to": "Finding",
+      "blurb": "Provenance for by llm() drafts."
+    },
+    {
+      "id": "has_tool",
+      "from": "Branch",
+      "to": "Tool",
+      "blurb": "Tools available on the graph for walkers."
+    }
+  ],
+  "walkers": [
+    {
+      "id": "SeedWorldWalker",
+      "blurb": "Extract world \u2192 spawn root Branch."
+    },
+    {
+      "id": "BlueWalker",
+      "blurb": "Propose / patch Actions to maximize goals."
+    },
+    {
+      "id": "RedWalker",
+      "blurb": "Inject Stressors; kill branches that break hard rules."
+    },
+    {
+      "id": "ToolDispatchWalker",
+      "blurb": "Visit Tool nodes; write facts back."
+    },
+    {
+      "id": "ScoreWalker",
+      "blurb": "Rank alive branches."
+    },
+    {
+      "id": "ArbiterWalker",
+      "blurb": "Pick survivor; emit Memo."
+    }
+  ]
+}

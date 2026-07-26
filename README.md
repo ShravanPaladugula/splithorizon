@@ -67,14 +67,18 @@ Hello path (walker visits a Tool node):
 JAC_HOME=/tmp/jac_home HOME=/tmp/jac_home ./scripts/run_demo.sh hello
 ```
 
-### 3. UI
+### 3. Interactive UI (Mac)
 
 ```bash
 JAC_HOME=/tmp/jac_home python3 serve.py
-# open http://127.0.0.1:8765
+open http://127.0.0.1:8765
 ```
 
-Left: fixture / proposal / Run. Center: live branch graph (Blue/Red forks, killed dimmed, recommended pulse). Right: Decision Memo, baseline foil, tool visit log.
+- Paste / pick a scenario → **Run · Fork the world**
+- D3 tree **animates branches as Blue/Red events fire** (play / scrub / click nodes)
+- Inspector shows scores, kill reasons, findings, tool visits per branch
+- **Jac schema** panel: nodes, edges, walkers from `schema.jac`
+- Arbiter memo + baseline foil + event stream
 
 ### 4. Live LLM path (optional)
 

@@ -3,63 +3,174 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SplitHorizon — Adversarial Counterfactuals</title>
+  <title>SplitHorizon — Business decisions, red-teamed</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/ui/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js" defer></script>
+  <script src="/ui/schema.js" defer></script>
+  <script src="/ui/app.js" defer></script>
 </head>
 <body>
-  <div class="atmosphere" aria-hidden="true"></div>
-  <header class="brand-bar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
+  <div class="fog" aria-hidden="true"></div>
+
+  <!-- LANDING -->
+  <section id="view-landing" class="view landing">
+    <header class="hero">
+      <p class="eyebrow">For business owners · Powered by Jac</p>
       <h1>SplitHorizon</h1>
+      <p class="lede">
+        Stuck on a business decision? Blue argues for the growth move.
+        Red tries to break it. You keep the plan that survives.
+      </p>
+      <div class="hero-actions">
+        <button type="button" class="run-btn" id="cta-start">Stress-test a hiring decision</button>
+        <p class="hero-note">One focused question today: hire now vs stay lean.</p>
+      </div>
+    </header>
+
+    <div class="how-strip" aria-label="How it works">
+      <div class="how-step">
+        <span class="how-n">01</span>
+        <h3>You answer 4 short prompts</h3>
+        <p>No essay. We walk you through the decision one piece at a time.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-n">02</span>
+        <h3>Blue vs Red on a graph</h3>
+        <p>Jac walkers fork counterfactual branches — growth plan vs kill shots.</p>
+      </div>
+      <div class="how-step">
+        <span class="how-n">03</span>
+        <h3>You get a survivor memo</h3>
+        <p>What to do, what died, and which constraints still matter.</p>
+      </div>
     </div>
-    <p class="tagline">Fork the world. Let Red break the plan. Keep what survives.</p>
-  </header>
+  </section>
 
-  <main class="stage">
-    <section class="panel proposal-panel" aria-label="Proposal">
-      <label for="fixture">Fixture</label>
-      <select id="fixture"></select>
-      <label for="proposal">Proposed action + context</label>
-      <textarea id="proposal" maxlength="4000" rows="12"></textarea>
-      <div class="actions">
-        <button id="run" type="button" class="primary">Run SplitHorizon</button>
-        <label class="toggle"><input type="checkbox" id="baseline" checked /> Show baseline foil</label>
+  <!-- GUIDED WIZARD -->
+  <section id="view-wizard" class="view wizard" hidden>
+    <div class="wizard-shell">
+      <button type="button" class="text-btn" id="wiz-back-landing">← Back</button>
+      <div class="wiz-progress" aria-hidden="true">
+        <i data-step="0" class="on"></i><i data-step="1"></i><i data-step="2"></i><i data-step="3"></i>
       </div>
-      <p id="status" class="status" role="status"></p>
-    </section>
+      <p class="eyebrow" id="wiz-step-label">Step 1 of 4</p>
+      <h2 id="wiz-title">What kind of business is this?</h2>
+      <p class="lede tight" id="wiz-help">One line is enough — industry and size.</p>
 
-    <section class="panel graph-panel" aria-label="Branch graph">
-      <h2>Branch graph</h2>
-      <svg id="graph" viewBox="0 0 720 520" role="img" aria-label="Counterfactual branch tree"></svg>
-      <div id="legend" class="legend">
-        <span class="lg blue">Blue fork</span>
-        <span class="lg red">Red fork</span>
-        <span class="lg dead">Killed</span>
-        <span class="lg pick">Recommended</span>
+      <div id="wiz-body" class="wiz-body"></div>
+
+      <div class="wiz-nav">
+        <button type="button" class="ghost-btn" id="wiz-prev" hidden>Back</button>
+        <button type="button" class="run-btn" id="wiz-next">Continue</button>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section class="panel memo-panel" aria-label="Decision memo">
-      <h2>Decision memo</h2>
-      <article id="memo">
-        <p class="muted">Run a fixture to generate an Arbiter memo.</p>
+  <!-- APP -->
+  <section id="view-app" class="view app" hidden>
+    <header class="app-top">
+      <div>
+        <p class="eyebrow">Live session</p>
+        <h1 class="app-brand">SplitHorizon</h1>
+      </div>
+      <button type="button" class="ghost-btn" id="btn-new">New decision</button>
+    </header>
+
+    <!-- Fixed L→R schema — never reflows with the tree -->
+    <div class="schema-rail" id="schema-rail" aria-label="Jac protocol schema">
+      <div class="schema-track">
+        <button type="button" class="schema-node" data-schema="idea">Idea</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node" data-schema="seed">Seed world</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node blue" data-schema="blue">Blue walker</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node red" data-schema="red">Red walker</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node" data-schema="tools">Tool nodes</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node" data-schema="score">Score</button>
+        <span class="schema-arrow" aria-hidden="true"></span>
+        <button type="button" class="schema-node gold" data-schema="arbiter">Arbiter</button>
+      </div>
+      <p class="schema-explain" id="schema-explain">
+        Left → right is the Jac protocol. Click a stage to see what it means.
+      </p>
+    </div>
+
+    <div class="app-grid">
+      <aside class="decision-card">
+        <h2>Your decision</h2>
+        <p id="decision-summary" class="decision-summary"></p>
+        <button type="button" class="run-btn" id="run">Run Blue vs Red</button>
+        <p id="status" class="status" role="status"></p>
+        <label class="check"><input type="checkbox" id="baseline" checked /> Show one-shot baseline</label>
+      </aside>
+
+      <div class="viz-shell">
+        <div class="viz-toolbar">
+          <div>
+            <h2>Counterfactual branches</h2>
+            <p id="run-meta" class="meta">Press run — branches grow left → right without jumping the page.</p>
+          </div>
+          <div class="playback" id="playback" hidden>
+            <button type="button" id="btn-reset" title="Reset">↺</button>
+            <button type="button" id="btn-play" title="Play / Pause">▶</button>
+            <input id="scrub" type="range" min="0" max="0" value="0" />
+            <span id="scrub-label" class="mono">0 / 0</span>
+          </div>
+        </div>
+        <div class="viz-stage" id="viz-stage">
+          <svg id="graph" role="img" aria-label="Branch tree"></svg>
+          <aside class="inspector" id="inspector" hidden>
+            <button type="button" class="close-insp" id="close-insp" aria-label="Close">×</button>
+            <p class="insp-kicker" id="insp-kicker">Branch</p>
+            <h3 id="insp-title">—</h3>
+            <dl id="insp-stats" class="stats"></dl>
+            <p id="insp-summary" class="insp-body"></p>
+            <div id="insp-kill" class="kill-box" hidden></div>
+            <h4>Findings</h4>
+            <ul id="insp-findings" class="find-list"></ul>
+            <h4>Tools</h4>
+            <ul id="insp-tools" class="find-list"></ul>
+          </aside>
+        </div>
+        <div class="legend-row">
+          <span class="lg seed">Seed</span>
+          <span class="lg blue">Blue</span>
+          <span class="lg red">Red</span>
+          <span class="lg dead">Killed</span>
+          <span class="lg pick">Recommended</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lower">
+      <article class="block">
+        <h2>Round log</h2>
+        <ol id="timeline" class="timeline"></ol>
       </article>
-      <h2 class="sub">Baseline foil</h2>
-      <article id="baseline-out" class="baseline">
-        <p class="muted">One-shot LLM plan without graph or adversary.</p>
+      <article class="block">
+        <h2>Arbiter memo</h2>
+        <div id="memo" class="memo"><p class="empty">Run to get a survivor recommendation.</p></div>
+        <h3>Baseline foil</h3>
+        <div id="baseline-out" class="baseline"><p class="empty">One-shot answer without Red.</p></div>
       </article>
-      <h2 class="sub">Tool visits</h2>
-      <ul id="tools" class="tool-list"></ul>
-    </section>
-  </main>
+      <article class="block">
+        <h2>Hard constraints</h2>
+        <ul id="hard-rules"></ul>
+        <h3>Jac types</h3>
+        <div id="schema-graph" class="schema-graph"></div>
+        <div id="schema-detail" class="schema-detail"><p class="empty">Click a type.</p></div>
+      </article>
+    </div>
+  </section>
 
   <footer>
-    <p>JacHacks SF · memory is the branched graph · agents are walkers · tools are places</p>
+    <p>Business decisions · Blue growth · Red risk · Jac walkers on a branched graph</p>
   </footer>
-  <script src="/ui/app.js"></script>
 </body>
 </html>

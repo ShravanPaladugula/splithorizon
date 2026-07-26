@@ -11,6 +11,31 @@ obj ToolResult {
 
 # Scenario templates keyed by tag
 glob SCENARIO_TEMPLATES: dict = {
+    "hire_chaos": {
+        "description": "Onboarding chaos: delivery freezes while payroll burn steps up",
+        "severity": 0.82,
+        "likelihood": 0.7,
+        "cost_delta": 24000.0,
+        "capacity_hit": 0.35,
+        "runway_hit": 3.0
+    },
+    "cash_crunch": {
+        "description": "Cash crunch: burn accelerates before revenue lands",
+        "severity": 0.75,
+        "likelihood": 0.6,
+        "cost_delta": 16000.0,
+        "capacity_hit": 0.15,
+        "runway_hit": 2.5
+    },
+    "churn_spike": {
+        "description": "Churn / pipeline soft: growth goal slips while team is distracted",
+        "severity": 0.6,
+        "likelihood": 0.55,
+        "cost_delta": 8000.0,
+        "capacity_hit": 0.1,
+        "runway_hit": 1.0,
+        "risk_delta": 0.2
+    },
     "logistics_delay": {
         "description": "Fog + choke-point delay: convoy loses 6h and fuel margin",
         "severity": 0.75,
@@ -84,12 +109,20 @@ def constraint_check(
             violations.append(f"SLA hours left {sla_hours_left:.1f} < min {lim:.1f}");
         } elif r == "equity" and equity_score < lim {
             violations.append(f"equity {equity_score:.2f} < min {lim:.2f}");
+        } elif r == "runway" {
+            runway_left = float(flags.get("runway_months", 11.0));
+            if runway_left < lim {
+                violations.append(f"runway {runway_left:.1f}mo < min {lim:.1f}mo");
+            }
         } elif r == "must_not" {
             if flags.get("fog_choke_no_overwatch") {
                 violations.append(str(rule.get("description", "must_not violated: fog choke without overwatch")));
             }
             if flags.get("fraud_clear_above_threshold") {
                 violations.append(str(rule.get("description", "must_not violated: clear above fraud threshold")));
+            }
+            if flags.get("delivery_freeze") {
+                violations.append(str(rule.get("description", "must_not violated: product delivery freeze")));
             }
         }
     }

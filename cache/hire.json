@@ -1,0 +1,115 @@
+{
+  "world": {
+    "title": "Hire 3 vs Stay Lean",
+    "domain": "hire",
+    "budget": 96000,
+    "entities": [
+      {"kind": "actor", "name": "Founder / CEO", "capacity": 1, "status": "deciding"},
+      {"kind": "asset", "name": "Cash Runway", "capacity": 11, "status": "11_months"},
+      {"kind": "asset", "name": "Engineering Team", "capacity": 2, "status": "at_capacity"},
+      {"kind": "actor", "name": "Pipeline / AE Capacity", "capacity": 1, "status": "founder_led"}
+    ],
+    "constraints": [
+      {"rule": "runway", "hard": true, "description": "Cash runway must stay >= 6 months", "limit_value": 6, "unit": "months"},
+      {"rule": "budget", "hard": true, "description": "New-hire spend this quarter <= $96k", "limit_value": 96000, "unit": "USD"},
+      {"rule": "must_not", "hard": true, "description": "Must not freeze product delivery > 6 weeks for onboarding chaos", "limit_value": 0, "unit": ""},
+      {"rule": "sla", "hard": true, "description": "Keep delivery cadence (min buffer weeks)", "limit_value": 2, "unit": "weeks_buffer_min"}
+    ],
+    "goals": [
+      {"description": "Grow MRR >= 30% in 2 quarters without a bridge round", "metric": "mrr_growth", "target_value": 0.3, "weight": 1.0}
+    ]
+  },
+  "blue_r1": {
+    "who": "Founder / CEO",
+    "what": "Hire all 3 now (2 eng + 1 AE) on day-one to maximize growth speed",
+    "when_label": "Week 0",
+    "cost": 96000,
+    "rationale": "Naive Blue: full hiring blast burns the whole quarterly budget immediately for speed.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r1": {
+    "description": "Onboarding overload: both eng hires ramp slowly; roadmap slips 8+ weeks while burn jumps",
+    "severity": 0.82,
+    "likelihood": 0.7,
+    "target_ref": "Engineering Team",
+    "tag": "hire_chaos",
+    "rationale": "Hard must_not: delivery freeze >6 weeks. Runway pressure starts as burn steps up with no revenue yet.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r2": {
+    "who": "Founder / CEO",
+    "what": "Patch: hire 1 senior eng first, delay AE 60 days, staged offers with 90-day ramp goals",
+    "when_label": "Week 1",
+    "cost": 38000,
+    "rationale": "Blue slows headcount to protect delivery cadence and keep runway above the floor.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r2": {
+    "description": "Sales pipeline softens: without AE, founder sales time collides with eng management",
+    "severity": 0.6,
+    "likelihood": 0.55,
+    "target_ref": "Pipeline / AE Capacity",
+    "tag": "churn_spike",
+    "rationale": "Stresses growth goal — MRR trajectory dips — but staged hire still respects runway and delivery.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r3": {
+    "who": "Ops / Finance",
+    "what": "Add contractor AE for 8 weeks + hiring scorecard; keep FTE eng only until MRR +15%",
+    "when_label": "Week 3",
+    "cost": 18000,
+    "rationale": "Blue mixes flexible capacity with one FTE to chase growth without locking full burn.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r3": {
+    "description": "Contractor AE underperforms; CAC rises and runway math tightens if converted early to FTE",
+    "severity": 0.58,
+    "likelihood": 0.5,
+    "target_ref": "Cash Runway",
+    "tag": "cash_crunch",
+    "rationale": "Probes premature conversion to expensive FTE burn.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r4": {
+    "who": "Founder / CEO",
+    "what": "Gate second eng hire on shipping v1.2 + runway check; AE FTE only after 3 qualified demos/week",
+    "when_label": "Week 6",
+    "cost": 12000,
+    "rationale": "Milestone gates turn hiring into a controlled branch, not a hope bet.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r4": {
+    "description": "Key customer churn risk during transition; support load spikes on the lean team",
+    "severity": 0.5,
+    "likelihood": 0.45,
+    "target_ref": "Founder / CEO",
+    "tag": "churn_spike",
+    "rationale": "Operational stress without breaking hard runway if gates hold.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "blue_r5": {
+    "who": "Leadership",
+    "what": "Final: staggered hire plan — 1 eng now, contractor AE, second eng at milestone; publish runway dashboard weekly",
+    "when_label": "Week 8",
+    "cost": 8000,
+    "rationale": "Survivor policy: growth with explicit kill-switches. Protects 6-month runway floor.",
+    "needs_tools": ["BudgetCalc", "ConstraintCheck"]
+  },
+  "red_r5": {
+    "description": "Competitor ships similar feature; pressure to abandon gates and hire all three again",
+    "severity": 0.55,
+    "likelihood": 0.4,
+    "target_ref": "Engineering Team",
+    "tag": "hire_chaos",
+    "rationale": "Temptation attack: if Blue reverts to blast-hire, Red kills again on delivery freeze / runway.",
+    "needs_tools": ["ScenarioInject", "ConstraintCheck"]
+  },
+  "baseline": "ONE-SHOT BASELINE (no Red team): Hire all 3 immediately. Speed wins markets; payroll is an investment. Confidence: high. (Brittle — ignores onboarding chaos, delivery freeze, and the 6-month runway floor.)",
+  "memo": {
+    "title": "Recommend staged hiring with milestone gates",
+    "recommended_reason": "Full day-one hiring dies on delivery freeze and runway risk. The surviving branch hires one eng now, uses flexible AE capacity, and gates further FTEs on product + pipeline proof — keeping runway >= 6 months.",
+    "kill_shots": "R1 Red: blast-hiring 3 people froze delivery >6 weeks while burn stepped up with no revenue lift.",
+    "open_risks": "Contractor AE quality; competitor pressure to abandon gates; support load on a still-lean team.",
+    "dissent": "Growth-at-all-costs voices want the original 3-hire blast; Arbiter rejects because Red proved the hard delivery and runway breaks on that line."
+  }
+}

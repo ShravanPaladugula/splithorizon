@@ -34,41 +34,19 @@ def jac_env() -> dict:
 
 
 def load_fixtures() -> list[dict]:
-    # Prefer Jac fixtures via a tiny runner; fallback to reading cache titles + embedded texts
-    fixtures_path = ROOT / "fixtures.jac"
-    # Static mirror for the UI (kept in sync with fixtures.jac)
     static = [
         {
-            "id": "logistics",
-            "name": "Defense / Logistics — Convoy Reroute",
-            "proposal": (ROOT / "fixtures" / "logistics.txt").read_text()
-            if (ROOT / "fixtures" / "logistics.txt").exists()
-            else "",
-        },
-        {
-            "id": "fintech",
-            "name": "Fintech — Suspicious Wire Hold vs Clear",
-            "proposal": (ROOT / "fixtures" / "fintech.txt").read_text()
-            if (ROOT / "fixtures" / "fintech.txt").exists()
-            else "",
-        },
-        {
-            "id": "shelter",
-            "name": "Social Impact — Shelter Bed Allocation",
-            "proposal": (ROOT / "fixtures" / "shelter.txt").read_text()
-            if (ROOT / "fixtures" / "shelter.txt").exists()
+            "id": "hire",
+            "name": "Hiring — Grow the team vs stay lean",
+            "proposal": (ROOT / "fixtures" / "hire.txt").read_text()
+            if (ROOT / "fixtures" / "hire.txt").exists()
             else "",
         },
     ]
-    # Fill from jac fixtures dump if texts empty — parse cache world titles only as last resort
-    if not static[0]["proposal"]:
-        # Read proposal strings from fixtures.jac via run
-        pass
-    _ = fixtures_path
     return static
 
 
-def run_engine(fixture_id: str, proposal: str, rounds: int = 3, baseline: bool = True) -> dict:
+def run_engine(fixture_id: str, proposal: str, rounds: int = 5, baseline: bool = True) -> dict:
     OUT.mkdir(exist_ok=True)
     runner = ROOT / "run_once.jac"
     runner.write_text(
@@ -131,7 +109,26 @@ class Handler(SimpleHTTPRequestHandler):
             if not path.exists():
                 return self._json({"error": "no run yet"}, 404)
             return self._json(json.loads(path.read_text()))
+        if parsed.path == "/api/schema":
+            schema_path = ROOT / "ui" / "schema.js"
+            # Prefer structured JSON extracted from the JS module constants via static file
+            static_schema = ROOT / "ui" / "schema.json"
+            if static_schema.exists():
+                return self._json(json.loads(static_schema.read_text()))
+            return self._json(
+                {
+                    "source": "schema.jac",
+                    "note": "Interactive schema lives in /ui/schema.js",
+                    "file": str(schema_path.name),
+                }
+            )
         return super().do_GET()
+
+    def end_headers(self):
+        # Hackathon-friendly: always fetch fresh UI assets
+        if self.path.startswith("/ui/") or self.path in ("/", "/index.html", "/ui/index.html"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -142,9 +139,9 @@ class Handler(SimpleHTTPRequestHandler):
         body = json.loads(self.rfile.read(length) or b"{}")
         try:
             result = run_engine(
-                fixture_id=body.get("fixture_id") or "logistics",
+                fixture_id=body.get("fixture_id") or "hire",
                 proposal=body.get("proposal") or "",
-                rounds=int(body.get("rounds") or 3),
+                rounds=int(body.get("rounds") or 5),
                 baseline=bool(body.get("baseline", True)),
             )
             self._json(result)
@@ -164,37 +161,21 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def ensure_fixture_texts():
-    """Write fixtures/*.txt from fixtures.jac constants via a one-liner if missing."""
+    """Write fixtures/*.txt so UI works even before Jac dump."""
     fx_dir = ROOT / "fixtures"
     fx_dir.mkdir(exist_ok=True)
-    # Embedded copies so UI works even before Jac dump
     texts = {
-        "logistics": """PROPOSAL: Reroute Supply Convoy Alpha through Highway 9 under fog advisory.
+        "hire": """DECISION: Hire 3 full-time people this quarter to grow faster.
 
-Context: Forward operating base needs medical and fuel resupply within 18 hours.
-Current plan: Take the shortest paved route (Highway 9) through the river choke-point.
-Budget: $85,000 for escort, fuel, and contingency.
-Assets: 4 trucks (capacity 12 tons), 1 escort unit, limited ISR coverage in fog.
-Constraints (HARD): (1) Do not exceed $85k. (2) Do not transit choke-point without overwatch if fog visibility < 200m. (3) Delivery SLA 18h.
-Goal: Deliver ≥90% of medical cargo intact before SLA.""",
-        "fintech": """PROPOSAL: Clear a $240,000 outbound wire flagged as medium-risk to meet client SLA.
-
-Context: Corporate client needs same-day settlement. Fraud model score 0.62 (medium).
-Ops proposes: Clear now; investigate after posting to avoid SLA breach.
-Budget/risk limit: Expected fraud loss tolerance $50,000 for this corridor.
-Constraints (HARD): (1) SLA clearance within 2 hours from flag. (2) Must not clear if fused fraud risk > 0.80. (3) Manual hold allowed but burns SLA.
-Goal: Minimize fraud loss while keeping SLA breach rate under policy.""",
-        "shelter": """PROPOSAL: Allocate all 40 remaining shelter beds to the first-arrived queue tonight.
-
-Context: Cold weather surge. 58 people in queue. Equity policy requires proportional access for families with children and disability-priority clients.
-Budget for overflow hotel vouchers: $12,000.
-Constraints (HARD): (1) Physical capacity 40 beds. (2) Equity score must remain ≥ 0.70. (3) Overflow spend ≤ $12k.
-Goal: Shelter the highest-need clients without collapsing equity or capacity.""",
+Business: Bootstrapped SaaS, 4 people, ~$42k MRR, 11 months cash runway.
+Tempted move: Hire 3 immediately (2 engineers + 1 AE) to hit a feature + sales push.
+Monthly hire cost (fully loaded): ~$32k. Hiring budget this quarter: $96k.
+HARD CONSTRAINTS: (1) Do not drop cash runway below 6 months. (2) Quarterly spend on new hires ≤ $96k. (3) Must not freeze product delivery for > 6 weeks during onboarding.
+GOAL: Raise MRR ≥ 30% within 2 quarters without a bridge round.""",
     }
     for k, v in texts.items():
         p = fx_dir / f"{k}.txt"
-        if not p.exists():
-            p.write_text(v)
+        p.write_text(v)
 
 
 def main():

@@ -8,8 +8,8 @@ include tools;
 import json;
 import copy;
 
-glob MAX_ROUNDS: int = 3;
-glob MAX_BRANCHES: int = 12;
+glob MAX_ROUNDS: int = 5;
+glob MAX_BRANCHES: int = 16;
 
 obj Session {
     has fixture_id: str = "";
@@ -17,7 +17,7 @@ obj Session {
     has title: str = "";
     has domain: str = "";
     has budget: float = 0.0;
-    has rounds: int = 3;
+    has rounds: int = 5;
     has branch_count: int = 0;
     has branches: list[dict] = [];
     has edges: list[dict] = [];
@@ -129,7 +129,7 @@ def seed_session(proposal: str, fixture_id: str, rounds: int) -> Session {
         "sla_hours_left": 24.0,
         "last_action": "",
         "last_stressor": "",
-        "flags": {}
+        "flags": {"runway_months": 11.0, "delivery_freeze": False}
     };
     session.branches.append(seed_branch);
     log_event(session, "seed", f"Seeded branch {root_id}: {world.title}", root_id);
@@ -233,26 +233,45 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
         child["capacity_used"] = min(float(child.get("capacity_used", 0.0)), 0.7);
         child["equity_score"] = max(float(child.get("equity_score", 1.0)), 0.75);
     }
+    # Business / hiring patches restore delivery + runway posture
+    if "patch" in what_l or "staged" in what_l or "gate" in what_l or "stagger" in what_l or "contractor" in what_l or "delay" in what_l {
+        flags["delivery_freeze"] = False;
+        flags["runway_months"] = max(float(flags.get("runway_months", 11.0)), 7.0);
+        child["capacity_used"] = min(float(child.get("capacity_used", 0.0)), 0.65);
+    }
+    if "runway_months" not in flags {
+        flags["runway_months"] = 11.0;
+    }
     child["flags"] = flags;
 
     # Tool visits — BudgetCalc then ConstraintCheck
     tools_needed = draft.needs_tools if draft.needs_tools else ["BudgetCalc", "ConstraintCheck"];
     budget_ok = True;
+    what_l_budget = draft.what.lower();
+    replace_plan = (
+        "patch" in what_l_budget
+        or "staged" in what_l_budget
+        or "stagger" in what_l_budget
+        or "gate" in what_l_budget
+        or "final:" in what_l_budget
+        or "contractor" in what_l_budget
+    );
+    base_spent = 0.0 if replace_plan else float(child.get("spent", 0.0));
     for tname in tools_needed {
         if tname == "BudgetCalc" {
             res = run_tool_visit(session, child["id"], "BudgetCalc", {
-                "spent": child.get("spent", 0.0),
+                "spent": base_spent,
                 "action_cost": draft.cost,
                 "budget_limit": session.budget
             });
             budget_ok = res.ok;
             if res.ok {
-                child["spent"] = float(child.get("spent", 0.0)) + draft.cost;
+                child["spent"] = base_spent + draft.cost;
             }
         } elif tname == "ConstraintCheck" {
             res = run_tool_visit(session, child["id"], "ConstraintCheck", {
                 "hard_rules_json": json.dumps(session.hard_rules),
-                "spent": child.get("spent", 0.0) + (0.0 if budget_ok else draft.cost),
+                "spent": child.get("spent", 0.0) if budget_ok else base_spent + draft.cost,
                 "budget_limit": session.budget,
                 "capacity_used": child.get("capacity_used", 0.0),
                 "capacity_limit": 1.0,
@@ -269,14 +288,13 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
         }
     }
     if budget_ok {
-        child["spent"] = float(parent.get("spent", 0.0)) + draft.cost;
+        child["spent"] = base_spent + draft.cost;
         # Blue patches improve coverage / reduce risk slightly
         child["goal_coverage"] = min(1.0, float(parent.get("goal_coverage", 0.2)) + 0.25);
         child["residual_risk"] = max(0.05, float(parent.get("residual_risk", 0.55)) - 0.15);
         child["uncertainty"] = max(0.1, float(parent.get("uncertainty", 0.5)) - 0.05);
     } else {
-        # apply cost anyway for honesty, mark dead if over hard budget
-        child["spent"] = float(parent.get("spent", 0.0)) + draft.cost;
+        child["spent"] = base_spent + draft.cost;
         child["alive"] = False;
         child["kill_reason"] = "Blue action broke budget (BudgetCalc)";
     }
@@ -336,6 +354,32 @@ def red_turn(session: Session, parent: dict, round_no: int) -> dict {
             child["capacity_used"] = max(float(child.get("capacity_used", 0.0)), 1.1);
         }
     }
+    # Hiring / business: blast-hire without staging => delivery freeze + runway hit
+    if draft.tag == "hire_chaos" or draft.tag == "cash_crunch" {
+        runway = float(flags.get("runway_months", 11.0)) - float(metrics.get("runway_hit", 2.0));
+        flags["runway_months"] = runway;
+        naive_blast = (
+            ("hire all" in action_l or "all 3" in action_l or "3 now" in action_l or "day-one" in action_l or "day one" in action_l)
+            and ("staged" not in action_l)
+            and ("gate" not in action_l)
+            and ("patch" not in action_l)
+            and ("stagger" not in action_l)
+            and ("delay" not in action_l)
+            and ("contractor" not in action_l)
+        );
+        if naive_blast {
+            flags["delivery_freeze"] = True;
+            flags["runway_months"] = min(runway, 5.0);
+            child["capacity_used"] = max(float(child.get("capacity_used", 0.0)), 1.05);
+        }
+        if draft.tag == "cash_crunch" and ("convert" in action_l) and ("gate" not in action_l) and ("stagger" not in action_l) {
+            flags["runway_months"] = min(float(flags.get("runway_months", 11.0)), 5.5);
+        }
+    }
+    if draft.tag == "churn_spike" {
+        child["goal_coverage"] = max(0.0, float(child.get("goal_coverage", 0.2)) - 0.12);
+        flags["runway_months"] = float(flags.get("runway_months", 11.0)) - float(metrics.get("runway_hit", 0.5));
+    }
     child["flags"] = flags;
 
     check = run_tool_visit(session, child["id"], "ConstraintCheck", {
@@ -343,7 +387,7 @@ def red_turn(session: Session, parent: dict, round_no: int) -> dict {
         "spent": child.get("spent", 0.0),
         "budget_limit": session.budget,
         "capacity_used": child.get("capacity_used", 0.0),
-        "capacity_limit": 1.0 if session.domain in ["logistics", "shelter", "fintech"] else session.capacity_limit,
+        "capacity_limit": 1.0 if session.domain in ["logistics", "shelter", "fintech", "hire"] else session.capacity_limit,
         "sla_hours_left": child.get("sla_hours_left", 24.0),
         "equity_score": child.get("equity_score", 1.0),
         "flags_json": json.dumps(flags)
