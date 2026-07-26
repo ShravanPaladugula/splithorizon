@@ -2,7 +2,7 @@
   const $ = (id) => document.getElementById(id);
   const SCHEMA_COPY = {
     seed: "CompanyState loads from your answers: cash, burn, MRR, headcount, milestone date.",
-    blue: "Blue proposes effect tags (hire_2_eng, …). Never invents dollar figures.",
+    blue: "Blue proposes a move for YOUR plan (custom effects). Never invents dollar figures — verifiers compute.",
     red: "Red attacks with claims. Verifiers apply stress arithmetic.",
     tools: "alive_at_milestone is brutal: cash-out must be on/after the milestone.",
     branch: "Each future is a Branch with copied state. Dead = failed hard check.",
@@ -416,7 +416,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
         renderOspMap();
         const focusIds = PIPELINE_FOCUS[key] || [];
         if (focusIds[0]) selectSchemaItem(focusIds[0]);
-        $("osp-stage")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        $("osp-board")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
     });
     document.querySelectorAll(".schema-filter").forEach((btn) => {
@@ -506,9 +506,8 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
   }
 
   function renderOspMap() {
-    const stage = $("osp-stage");
-    const svgEl = $("schema-svg");
-    if (!stage || !svgEl || typeof d3 === "undefined") return;
+    const board = $("osp-board");
+    if (!board) return;
     const { schema, items } = schemaCatalog();
     if (!items.length) return;
 
@@ -524,132 +523,41 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       return true;
     });
 
-    const width = stage.clientWidth || 420;
-    const height = Math.max(280, Math.min(420, 160 + visible.length * 28));
-    const svg = d3.select(svgEl);
-    svg.attr("viewBox", `0 0 ${width} ${height}`).attr("width", "100%").attr("height", height);
-
-    // Layout: nodes left/center, walkers right, edges as dashed links
-    const nodeItems = visible.filter((v) => v.kind === "node");
-    const walkerItems = visible.filter((v) => v.kind === "walker");
-    const edgeItems = visible.filter((v) => v.kind === "edge");
-
-    const layout = new Map();
-    nodeItems.forEach((n, i) => {
-      const col = n.role === "tool" || n.role === "red" ? 1 : 0;
-      const peers = nodeItems.filter((x) => (x.role === "tool" || x.role === "red") === (col === 1));
-      const idx = peers.indexOf(n);
-      layout.set(n.id, {
-        x: col === 0 ? width * 0.22 : width * 0.48,
-        y: 48 + idx * ((height - 70) / Math.max(peers.length, 1)),
-        kind: "node",
-        role: n.role,
-        raw: n,
-      });
-    });
-    walkerItems.forEach((w, i) => {
-      layout.set(w.id, {
-        x: width * 0.78,
-        y: 40 + i * ((height - 60) / Math.max(walkerItems.length, 1)),
-        kind: "walker",
-        role: "walker",
-        raw: w,
-      });
-    });
-    // Edge labels sit between endpoints
-    edgeItems.forEach((e) => {
-      const a = layout.get(e.from);
-      const b = layout.get(e.to);
-      if (!a || !b) return;
-      layout.set(e.id, {
-        x: (a.x + b.x) / 2,
-        y: (a.y + b.y) / 2 - 12,
-        kind: "edge",
-        role: "edge",
-        raw: e,
-        from: a,
-        to: b,
-      });
-    });
-
-    svg.selectAll("*").remove();
-    const g = svg.append("g").attr("class", "osp-viewport");
-
-    // Draw edge paths first
-    edgeItems.forEach((e) => {
-      const a = layout.get(e.from);
-      const b = layout.get(e.to);
-      if (!a || !b) return;
-      const midX = (a.x + b.x) / 2;
-      const selected = schemaSelection === e.id;
-      g.append("path")
-        .attr("class", `osp-link ${selected ? "selected" : ""}`)
-        .attr("d", `M${a.x},${a.y} C${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}`)
-        .attr("fill", "none");
-    });
-
-    // Walker visit links (subtle)
-    walkerItems.forEach((w) => {
-      const wPos = layout.get(w.id);
-      (w.visits || []).forEach((vid) => {
-        const t = layout.get(vid);
-        if (!wPos || !t) return;
-        g.append("path")
-          .attr("class", "osp-visit")
-          .attr("d", `M${wPos.x},${wPos.y} L${t.x},${t.y}`)
-          .attr("fill", "none");
-      });
-    });
-
-    const roleColor = (role, kind) => {
-      if (kind === "walker") return "#0d6e6e";
-      if (kind === "edge") return "#c9a227";
-      if (role === "red") return "#e85d04";
-      if (role === "tool") return "#1b3a4b";
-      return "#0c1218";
-    };
-
-    const nodes = [...layout.entries()].map(([id, pos]) => ({ id, ...pos }));
-    const nodeG = g
-      .selectAll("g.osp-node")
-      .data(nodes, (d) => d.id)
-      .join("g")
-      .attr("class", (d) => `osp-node ${d.kind} ${schemaSelection === d.id ? "selected" : ""}`)
-      .attr("transform", (d) => `translate(${d.x},${d.y})`)
-      .style("cursor", "pointer")
-      .on("click", (event, d) => {
-        event.stopPropagation();
-        selectSchemaItem(d.id);
-      });
-
-    nodeG
-      .append("circle")
-      .attr("r", (d) => (d.kind === "edge" ? 10 : d.kind === "walker" ? 14 : 16))
-      .attr("fill", (d) => roleColor(d.role, d.kind))
-      .attr("stroke", (d) => (schemaSelection === d.id ? "#c9a227" : "#fff"))
-      .attr("stroke-width", (d) => (schemaSelection === d.id ? 3 : 1.5));
-
-    nodeG
-      .append("text")
-      .attr("class", "osp-label")
-      .attr("text-anchor", "middle")
-      .attr("y", (d) => (d.kind === "edge" ? -14 : -22))
-      .text((d) => d.id);
-
     const counts = liveCounts();
-    nodeG
-      .filter((d) => d.kind === "node" && counts[d.id] != null)
-      .append("text")
-      .attr("class", "osp-count")
-      .attr("text-anchor", "middle")
-      .attr("y", 5)
-      .attr("fill", "#fff")
-      .attr("font-size", "10")
-      .text((d) => counts[d.id]);
+    const groups = [
+      { key: "node", title: "Nodes", list: visible.filter((v) => v.kind === "node") },
+      { key: "edge", title: "Edges", list: visible.filter((v) => v.kind === "edge") },
+      { key: "walker", title: "Walkers", list: visible.filter((v) => v.kind === "walker") },
+    ].filter((g) => g.list.length);
+
+    board.innerHTML = groups
+      .map((g) => {
+        const cards = g.list
+          .map((it) => {
+            const live = counts[it.id];
+            const sub =
+              it.kind === "edge"
+                ? `${it.from} → ${it.to}`
+                : it.kind === "walker"
+                  ? (it.visits || []).slice(0, 3).join(", ")
+                  : (it.fields || []).slice(0, 3).join(", ");
+            const countBadge = live != null ? `<span class="osp-badge">${live}</span>` : "";
+            return `<button type="button" class="osp-card ${it.kind} ${it.role || ""} ${schemaSelection === it.id ? "selected" : ""}" data-id="${escapeHtml(it.id)}">
+              <span class="osp-card-kicker">${escapeHtml(it.kind)}${countBadge}</span>
+              <strong>${escapeHtml(it.id)}</strong>
+              <span class="osp-card-sub mono">${escapeHtml(sub)}</span>
+            </button>`;
+          })
+          .join("");
+        return `<div class="osp-col"><p class="osp-col-title">${g.title}</p><div class="osp-cards">${cards}</div></div>`;
+      })
+      .join("");
+
+    board.querySelectorAll(".osp-card").forEach((btn) => {
+      btn.addEventListener("click", () => selectSchemaItem(btn.dataset.id));
+    });
 
     ospReady = true;
-
-    // Re-render detail if selection still visible
     if (schemaSelection) {
       const still = items.find((x) => x.id === schemaSelection);
       if (still) renderSchemaDetail(still, schema);

@@ -4,7 +4,7 @@ import json;
 import os;
 import time;
 
-glob LLM_RETRY_SLEEP: float = 15.0;
+glob LLM_RETRY_SLEEP: float = 8.0;
 
 obj MoveDraft {
     has move: str = "noop";
@@ -166,49 +166,151 @@ def memo_from_dict(d: dict) -> MemoProse {
     );
 }
 
-def blue_propose(branch_summary: str, question: str, prior_attacks: str, fixture_id: str, round_no: int) -> MoveDraft {
+def _q_lower(s: str) -> str {
+    return str(s).lower();
+}
+
+def scenario_blue_fallback(question: str, round_no: int) -> MoveDraft {
+    # Plan-specific fallbacks when LLM is offline/rate-limited — NEVER default to hiring.
+    t = _q_lower(question);
+    opts: list = [];
+    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) or ("cac" in t) {
+        opts = [
+            MoveDraft(move="custom", claim="Commit the full acquisition spend to hit the signup goal before the milestone", effect_tag="custom", module="launch", label="Run full acquisition spend", burn_delta_pct=45.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Pilot a smaller spend first to validate conversion before scaling", effect_tag="custom", module="launch", label="Pilot smaller spend first", burn_delta_pct=18.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=7),
+            MoveDraft(move="custom", claim="Shift to organic/referral channels to protect runway", effect_tag="custom", module="runway", label="Pivot to organic channels", burn_delta_pct=-8.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=14)
+        ];
+    } elif ("price" in t) or ("pricing" in t) or ("raise price" in t) or ("enterprise" in t and "price" in t) {
+        opts = [
+            MoveDraft(move="custom", claim="Raise prices now and accept some churn for higher ARPU", effect_tag="custom", module="runway", label="Raise prices now", burn_delta_pct=0.0, mrr_delta_pct=25.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Grandfather existing customers; new logo pricing only", effect_tag="custom", module="launch", label="New-logo pricing only", burn_delta_pct=2.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=5),
+            MoveDraft(move="custom", claim="Hold price and compete on packaging instead", effect_tag="custom", module="runway", label="Hold price, repackage", burn_delta_pct=5.0, mrr_delta_pct=4.0, headcount_delta=0, milestone_shift_days=10)
+        ];
+    } elif ("office" in t) or ("relocat" in t) or ("second location" in t) or ("expand to" in t) {
+        opts = [
+            MoveDraft(move="custom", claim="Open the second office now to unlock hiring and customers", effect_tag="custom", module="runway", label="Open second office now", burn_delta_pct=35.0, mrr_delta_pct=8.0, headcount_delta=2, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Start with a small hub and hybrid travel instead of a full office", effect_tag="custom", module="runway", label="Small hub + hybrid", burn_delta_pct=12.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=10),
+            MoveDraft(move="custom", claim="Stay remote and redeploy rent budget into GTM", effect_tag="custom", module="runway", label="Stay remote, fund GTM", burn_delta_pct=-5.0, mrr_delta_pct=6.0, headcount_delta=0, milestone_shift_days=0)
+        ];
+    } elif ("client" in t) or ("customer" in t) or ("sales" in t) or ("outbound" in t) or ("pipeline" in t) {
+        opts = [
+            MoveDraft(move="custom", claim="Stand up a focused outbound motion to land the next customers", effect_tag="custom", module="launch", label="Stand up outbound sales", burn_delta_pct=22.0, mrr_delta_pct=15.0, headcount_delta=1, milestone_shift_days=-5),
+            MoveDraft(move="custom", claim="Founder-led sales only until conversion is proven", effect_tag="custom", module="launch", label="Founder-led sales only", burn_delta_pct=5.0, mrr_delta_pct=8.0, headcount_delta=0, milestone_shift_days=7),
+            MoveDraft(move="custom", claim="Partner/channel motion instead of direct sales headcount", effect_tag="custom", module="launch", label="Partner channel motion", burn_delta_pct=10.0, mrr_delta_pct=10.0, headcount_delta=0, milestone_shift_days=14)
+        ];
+    } elif ("hire" in t) or ("engineer" in t) or ("headcount" in t) or ("contractor" in t) {
+        opts = [
+            MoveDraft(move="hire_2_eng", claim="Hire two engineers to protect the milestone", effect_tag="hire_2_eng", module="hire", label="Hire two engineers"),
+            MoveDraft(move="hire_1_eng_contractor", claim="One engineer plus contractor to limit burn", effect_tag="hire_1_eng_contractor", module="hire", label="One eng + contractor"),
+            MoveDraft(move="hire_0_hold", claim="Hold hiring and slip the milestone if needed", effect_tag="hire_0_hold", module="hire", label="Hold hiring")
+        ];
+    } elif ("raise" in t) or ("fundrais" in t) or ("burn" in t) or ("runway" in t) {
+        opts = [
+            MoveDraft(move="raise_soon", claim="Start the raise immediately", effect_tag="raise_soon", module="runway", label="Start raising"),
+            MoveDraft(move="cut_burn", claim="Cut discretionary burn to extend runway first", effect_tag="cut_burn", module="runway", label="Cut discretionary burn"),
+            MoveDraft(move="custom", claim="Bridge: light cut plus soft raise conversations", effect_tag="custom", module="runway", label="Bridge cut + soft raise", burn_delta_pct=-8.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=5)
+        ];
+    } else {
+        opts = [
+            MoveDraft(move="custom", claim="Execute the stated plan at full intensity", effect_tag="custom", module="runway", label="Execute plan fully", burn_delta_pct=20.0, mrr_delta_pct=8.0, headcount_delta=0, milestone_shift_days=0),
+            MoveDraft(move="custom", claim="Stage a smaller version of the plan to protect cash-out", effect_tag="custom", module="runway", label="Stage a smaller version", burn_delta_pct=8.0, mrr_delta_pct=3.0, headcount_delta=0, milestone_shift_days=10),
+            MoveDraft(move="custom", claim="Defer the plan and preserve runway until the milestone is safer", effect_tag="custom", module="runway", label="Defer, preserve runway", burn_delta_pct=-6.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=21)
+        ];
+    }
+    idx = (round_no - 1) % len(opts);
+    return opts[idx];
+}
+
+def scenario_red_fallback(question: str, move: str, round_no: int) -> AttackDraft {
+    t = _q_lower(question + " " + move);
+    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) {
+        return AttackDraft(claim="Acquisition spend fails to convert; CAC spikes and MRR does not land before the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=12.0, mrr_delta_pct=-20.0, milestone_shift_days=14);
+    }
+    if ("price" in t) or ("pricing" in t) {
+        return AttackDraft(claim="Price hike triggers churn and stalled expansion revenue before the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=5.0, mrr_delta_pct=-25.0, milestone_shift_days=10);
+    }
+    if ("office" in t) or ("relocat" in t) {
+        return AttackDraft(claim="Office build-out overruns and distracts the team, delaying the milestone", severity="medium", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=18.0, mrr_delta_pct=-5.0, milestone_shift_days=21);
+    }
+    if ("client" in t) or ("sales" in t) or ("outbound" in t) {
+        return AttackDraft(claim="Sales cycle slips; pipeline does not convert before cash pressure hits", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=10.0, mrr_delta_pct=-15.0, milestone_shift_days=20);
+    }
+    if ("hire" in t) or ("engineer" in t) {
+        return AttackDraft(claim="Onboarding freeze: new hires raise burn before they move the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="onboarding_freeze", burn_delta_pct=8.0, mrr_delta_pct=0.0, milestone_shift_days=21);
+    }
+    return AttackDraft(claim="The plan's costs land before its upside; cash-out moves ahead of the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=10.0, mrr_delta_pct=-10.0, milestone_shift_days=14);
+}
+
+def is_cached_fixture(fixture_id: str) -> bool {
+    return fixture_id in ["interlock", "hire", "launch", "runway"];
+}
+
+def blue_propose(branch_summary: str, question: str, prior_attacks: str, fixture_id: str, round_no: int, variety: int = 0) -> MoveDraft {
     cache = load_fixture_cache(fixture_id) if fixture_id else {};
     key = f"blue_r{round_no}";
-    if cache and key in cache {
+    if cache and key in cache and variety == 0 {
         return move_from_dict(cache[key]);
     }
-    if prefer_cache() and fixture_id {
-        return MoveDraft(move="noop", claim="cache miss hold", effect_tag="noop", module="runway");
+    # Custom / unknown fixtures: always try LLM when live; else scenario-aware fallback.
+    pick = round_no + variety;
+    if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
+        if not prefer_cache() {
+            try {
+                return blue_propose_llm(branch_summary, question, prior_attacks);
+            } except Exception as e {
+                print(f"[SplitHorizon] blue_propose retry after: {e}");
+                time.sleep(LLM_RETRY_SLEEP);
+                try {
+                    return blue_propose_llm(branch_summary, question, prior_attacks);
+                } except Exception as e2 {
+                    print(f"[SplitHorizon] blue_propose scenario fallback: {e2}");
+                }
+            }
+        }
+        return scenario_blue_fallback(question, pick);
+    }
+    if prefer_cache() {
+        return scenario_blue_fallback(question, pick);
     }
     try {
         return blue_propose_llm(branch_summary, question, prior_attacks);
     } except Exception as e {
-        print(f"[SplitHorizon] blue_propose retry after: {e}");
-        time.sleep(LLM_RETRY_SLEEP);
-        try {
-            return blue_propose_llm(branch_summary, question, prior_attacks);
-        } except Exception as e2 {
-            print(f"[SplitHorizon] blue_propose fallback: {e2}");
-            return MoveDraft(move="cut_burn", claim="Trim discretionary burn while the plan's risk is unresolved", effect_tag="cut_burn", module="runway");
-        }
+        print(f"[SplitHorizon] blue_propose fallback: {e}");
+        return scenario_blue_fallback(question, pick);
     }
 }
 
-def red_attack(branch_summary: str, move: str, fixture_id: str, round_no: int) -> AttackDraft {
+def red_attack(question: str, branch_summary: str, move: str, fixture_id: str, round_no: int) -> AttackDraft {
     cache = load_fixture_cache(fixture_id) if fixture_id else {};
     key = f"red_r{round_no}";
     if cache and key in cache {
         return attack_from_dict(cache[key]);
     }
-    if prefer_cache() and fixture_id {
-        return AttackDraft(claim="Generic burn stress", severity="medium", stress_tag="generic");
+    context = str(question) + " " + str(branch_summary) + " " + str(move);
+    if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
+        if not prefer_cache() {
+            try {
+                return red_attack_llm(branch_summary, move);
+            } except Exception as e {
+                print(f"[SplitHorizon] red_attack retry after: {e}");
+                time.sleep(LLM_RETRY_SLEEP);
+                try {
+                    return red_attack_llm(branch_summary, move);
+                } except Exception as e2 {
+                    print(f"[SplitHorizon] red_attack scenario fallback: {e2}");
+                }
+            }
+        }
+        return scenario_red_fallback(context, move, round_no);
+    }
+    if prefer_cache() {
+        return scenario_red_fallback(context, move, round_no);
     }
     try {
         return red_attack_llm(branch_summary, move);
     } except Exception as e {
-        print(f"[SplitHorizon] red_attack retry after: {e}");
-        time.sleep(LLM_RETRY_SLEEP);
-        try {
-            return red_attack_llm(branch_summary, move);
-        } except Exception as e2 {
-            print(f"[SplitHorizon] red_attack fallback: {e2}");
-            return AttackDraft(claim="Burn accelerates before milestone", severity="high", check_hint="alive_at_milestone", stress_tag="burn_spike");
-        }
+        print(f"[SplitHorizon] red_attack fallback: {e}");
+        return scenario_red_fallback(context, move, round_no);
     }
 }
 

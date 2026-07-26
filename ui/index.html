@@ -232,7 +232,7 @@
         <div class="schema-block-head">
           <div>
             <h2>Jac OSP schema</h2>
-            <p class="meta">Click a node, edge, or walker. Pipeline steps above filter this map.</p>
+            <p class="meta">Click a type. Pipeline steps above filter this list.</p>
           </div>
           <div class="schema-filters" id="schema-filters">
             <button type="button" class="schema-filter on" data-filter="all">All</button>
@@ -241,9 +241,7 @@
             <button type="button" class="schema-filter" data-filter="walkers">Walkers</button>
           </div>
         </div>
-        <div class="osp-stage" id="osp-stage">
-          <svg id="schema-svg" role="img" aria-label="Jac OSP type graph"></svg>
-        </div>
+        <div class="osp-board" id="osp-board"></div>
         <div id="schema-detail" class="schema-detail"><p class="empty">Click a type to inspect fields, edges, and which walkers visit it.</p></div>
         <h3>Verifier registry</h3>
         <ul id="hard-rules"></ul>

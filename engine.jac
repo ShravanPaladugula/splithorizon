@@ -336,7 +336,7 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     if moves_seen {
         prior = prior + " || Moves ALREADY on the tree (propose something DIFFERENT): " + "; ".join(moves_seen[-5:]);
     }
-    draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no);
+    draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no, len(moves_seen));
     tag = draft.effect_tag if draft.effect_tag else draft.move;
     is_custom = bool(draft.label) and (tag == "custom" or tag not in EFFECT_CATALOG);
     label = draft.label if is_custom else effect_label(tag);
@@ -383,7 +383,7 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
 }
 
 def red_turn(session: Session, parent: dict, round_no: int) -> dict {
-    draft = red_attack(parent.get("summary", ""), parent.get("move", ""), session.fixture_id, round_no);
+    draft = red_attack(session.question, parent.get("summary", ""), parent.get("move", ""), session.fixture_id, round_no);
     child = fork_branch(session, parent, f"R{round_no} Red: {draft.claim[:42]}", "red", round_no, draft.stress_tag);
     child["last_stressor"] = draft.claim;
     child["summary"] = f"Red: {draft.claim} [{draft.stress_tag}]";

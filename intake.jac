@@ -109,8 +109,8 @@ def classify_modules_keywords(plan: str) -> list {
     t = _lower(plan);
     mods: list = [];
     hire_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team", "fire", "layoff"];
-    launch_kw = ["launch", "ship", "release", "go-live", "golive", "market", "expand", "product", "campaign", "customer"];
-    runway_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "buy", "invest"];
+    launch_kw = ["launch", "ship", "release", "go-live", "golive", "market", "expand", "product", "campaign", "customer", "ad ", "ads", "advertis", "influencer", "signup", "sales", "outbound", "gtm", "growth"];
+    runway_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "buy", "invest", "office", "relocat"];
     for k in hire_kw {
         if k in t {
             if "hire" not in mods { mods.append("hire"); }
@@ -157,25 +157,13 @@ def classify_modules(plan: str) -> dict {
 glob DEMO_PLAN_KW: list = ["two engineer", "2 engineer", "october launch"];
 
 def pick_fixture(modules: list, plan: str) -> str {
-    # The canned interlock cache is ONLY for the demo plan. Real founder plans
-    # run live so Blue/Red address the actual decision.
+    # ONLY the canned hire×launch demo uses fixture caches.
+    # Every other founder plan is "custom" so Blue/Red follow THAT scenario.
     t = _lower(plan);
-    is_demo = False;
     for k in DEMO_PLAN_KW {
-        if k in t { is_demo = True; }
+        if k in t { return "interlock"; }
     }
-    live = os.environ.get("SPLITHORIZON_LIVE", "") == "1";
-    if live and not is_demo {
-        return "custom";
-    }
-    has_h = "hire" in modules;
-    has_l = "launch" in modules;
-    has_r = "runway" in modules;
-    if has_h and has_l { return "interlock"; }
-    if has_h { return "hire"; }
-    if has_l { return "launch"; }
-    if has_r { return "runway"; }
-    return "interlock";
+    return "custom";
 }
 
 def _answered(answers: dict, field: str) -> bool {

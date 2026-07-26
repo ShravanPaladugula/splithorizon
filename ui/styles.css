@@ -302,39 +302,77 @@ body {
   color: var(--teal-deep);
   background: rgba(13, 110, 110, 0.1);
 }
-.osp-stage {
-  width: 100%;
-  min-height: 280px;
+.osp-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+@media (max-width: 900px) {
+  .osp-board { grid-template-columns: 1fr; }
+}
+.osp-col-title {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.osp-cards { display: flex; flex-direction: column; gap: 8px; }
+.osp-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background:
-    radial-gradient(ellipse at 20% 20%, rgba(13,110,110,0.06), transparent 50%),
-    radial-gradient(ellipse at 80% 70%, rgba(232,93,4,0.05), transparent 45%),
-    rgba(255,255,255,0.55);
-  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.75);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
-.osp-link {
-  stroke: rgba(12, 18, 24, 0.22);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
+.osp-card:hover { border-color: var(--teal); }
+.osp-card.selected {
+  border-color: var(--gold);
+  background: rgba(201,162,39,0.1);
+  box-shadow: inset 3px 0 0 var(--gold);
 }
-.osp-link.selected { stroke: var(--gold); stroke-width: 2.5; stroke-dasharray: none; }
-.osp-visit {
-  stroke: rgba(13, 110, 110, 0.18);
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-  pointer-events: none;
+.osp-card.walker { border-left: 3px solid var(--teal); }
+.osp-card.edge { border-style: dashed; }
+.osp-card.red { border-left: 3px solid var(--signal); }
+.osp-card.tool { border-left: 3px solid var(--seed); }
+.osp-card-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
-.osp-node circle { transition: r 0.15s ease, stroke-width 0.15s ease; }
-.osp-node:hover circle { filter: brightness(1.08); }
-.osp-node.selected circle { stroke: var(--gold); stroke-width: 3; }
-.osp-label {
+.osp-badge {
   font-family: var(--mono);
-  font-size: 10px;
-  fill: var(--ink);
-  pointer-events: none;
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(13,110,110,0.12);
+  color: var(--teal-deep);
 }
-.osp-count { font-family: var(--mono); pointer-events: none; }
+.osp-card strong { font-size: 0.92rem; color: var(--ink); }
+.osp-card-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.osp-stage {
+  display: none;
+}
 .schema-detail {
   margin-top: 12px;
   padding: 14px 16px;
