@@ -1,0 +1,6 @@
+DECISION: Should we hire two engineers to hit the October launch?
+
+Company: Northline (seed CompanyState).
+Tempted move: Hire two full-time engineers now so October 3 still lands.
+Counter-move: One engineer + contractor.
+Spine: what happens to the cash-out date, and does the milestone land before it?

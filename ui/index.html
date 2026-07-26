@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SplitHorizon — Business decisions, red-teamed</title>
+  <title>SplitHorizon — a date, not advice</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -15,110 +15,91 @@
 <body>
   <div class="fog" aria-hidden="true"></div>
 
-  <!-- LANDING -->
   <section id="view-landing" class="view landing">
     <header class="hero">
-      <p class="eyebrow">For business owners · Powered by Jac</p>
+      <p class="eyebrow">Decision simulator · Jac walkers · deterministic verifiers</p>
       <h1>SplitHorizon</h1>
       <p class="lede">
-        Stuck on a business decision? Blue argues for the growth move.
-        Red tries to break it. You keep the plan that survives.
+        A chatbot gives you advice. SplitHorizon gives you a <em>date</em> —
+        when cash runs out, and whether your milestone lands before it.
       </p>
-      <div class="hero-actions">
-        <button type="button" class="run-btn" id="cta-start">Stress-test a hiring decision</button>
-        <p class="hero-note">One focused question today: hire now vs stay lean.</p>
-      </div>
+      <button type="button" class="run-btn hero-cta" id="cta-start">Run the interlock demo</button>
     </header>
 
-    <div class="how-strip" aria-label="How it works">
-      <div class="how-step">
-        <span class="how-n">01</span>
-        <h3>You answer 4 short prompts</h3>
-        <p>No essay. We walk you through the decision one piece at a time.</p>
+    <div class="compare" aria-label="Thesis">
+      <div class="compare-col weak">
+        <p class="compare-kicker">Chatbot</p>
+        <p class="pipeline mono">Prompt → Opinion</p>
+        <p>“Hire the two engineers.” Sounds confident. No arithmetic.</p>
       </div>
-      <div class="how-step">
-        <span class="how-n">02</span>
-        <h3>Blue vs Red on a graph</h3>
-        <p>Jac walkers fork counterfactual branches — growth plan vs kill shots.</p>
-      </div>
-      <div class="how-step">
-        <span class="how-n">03</span>
-        <h3>You get a survivor memo</h3>
-        <p>What to do, what died, and which constraints still matter.</p>
+      <div class="compare-col strong">
+        <p class="compare-kicker">SplitHorizon</p>
+        <p class="pipeline mono">State → Blue → Red → Verifier → Date</p>
+        <p>Futures fork. Hard checks kill. Survivors ranked by survival.</p>
       </div>
     </div>
+
+    <ol class="mvp-steps">
+      <li><span class="step-n">1 · Seed</span><h3>CompanyState</h3><p>Cash, burn, MRR, headcount, milestone date.</p></li>
+      <li><span class="step-n">2 · Blue</span><h3>Propose moves</h3><p>Claims and effect tags — never invents figures.</p></li>
+      <li><span class="step-n">3 · Red</span><h3>Attack</h3><p>Stress the plan; verifiers supply the numbers.</p></li>
+      <li><span class="step-n">4 · Verify</span><h3>Hard arithmetic</h3><p>Cash-out vs milestone. Brutal kills with visible dates.</p></li>
+      <li><span class="step-n">5 · Branches</span><h3>Futures</h3><p>Dead greyed. Survivors still alive at the milestone.</p></li>
+      <li><span class="step-n">6 · Arbiter</span><h3>A date</h3><p>No confidence %. Survival months + evidence.</p></li>
+    </ol>
+
+    <p class="example-line">
+      Interlock: <strong>“Should we hire two engineers to hit the October launch?”</strong>
+      Hire raises burn; launch may land sooner — opposite pulls.
+    </p>
   </section>
 
-  <!-- GUIDED WIZARD -->
-  <section id="view-wizard" class="view wizard" hidden>
-    <div class="wizard-shell">
-      <button type="button" class="text-btn" id="wiz-back-landing">← Back</button>
-      <div class="wiz-progress" aria-hidden="true">
-        <i data-step="0" class="on"></i><i data-step="1"></i><i data-step="2"></i><i data-step="3"></i>
-      </div>
-      <p class="eyebrow" id="wiz-step-label">Step 1 of 4</p>
-      <h2 id="wiz-title">What kind of business is this?</h2>
-      <p class="lede tight" id="wiz-help">One line is enough — industry and size.</p>
-
-      <div id="wiz-body" class="wiz-body"></div>
-
-      <div class="wiz-nav">
-        <button type="button" class="ghost-btn" id="wiz-prev" hidden>Back</button>
-        <button type="button" class="run-btn" id="wiz-next">Continue</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- APP -->
   <section id="view-app" class="view app" hidden>
     <header class="app-top">
       <div>
-        <p class="eyebrow">Live session</p>
+        <p class="eyebrow">War room</p>
         <h1 class="app-brand">SplitHorizon</h1>
       </div>
-      <button type="button" class="ghost-btn" id="btn-new">New decision</button>
+      <button type="button" class="ghost-btn" id="btn-new">← Thesis</button>
     </header>
 
-    <!-- Fixed L→R schema — never reflows with the tree -->
-    <div class="schema-rail" id="schema-rail" aria-label="Jac protocol schema">
+    <div class="schema-rail" id="schema-rail">
+      <p class="schema-lead-label">Pipeline · left → right</p>
       <div class="schema-track">
-        <button type="button" class="schema-node" data-schema="idea">Idea</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node" data-schema="seed">Seed world</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node blue" data-schema="blue">Blue walker</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node red" data-schema="red">Red walker</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node" data-schema="tools">Tool nodes</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node" data-schema="score">Score</button>
-        <span class="schema-arrow" aria-hidden="true"></span>
-        <button type="button" class="schema-node gold" data-schema="arbiter">Arbiter</button>
+        <button type="button" class="schema-node" data-schema="seed">1 Seed</button>
+        <span class="schema-arrow"></span>
+        <button type="button" class="schema-node blue" data-schema="blue">2 Blue</button>
+        <span class="schema-arrow"></span>
+        <button type="button" class="schema-node red" data-schema="red">3 Red</button>
+        <span class="schema-arrow"></span>
+        <button type="button" class="schema-node" data-schema="tools">4 Verifier</button>
+        <span class="schema-arrow"></span>
+        <button type="button" class="schema-node" data-schema="branch">5 Branches</button>
+        <span class="schema-arrow"></span>
+        <button type="button" class="schema-node gold" data-schema="arbiter">6 Date</button>
       </div>
-      <p class="schema-explain" id="schema-explain">
-        Left → right is the Jac protocol. Click a stage to see what it means.
-      </p>
+      <p class="schema-explain" id="schema-explain">Spine: cash-out date vs milestone. Arbiter = survival.</p>
     </div>
 
     <div class="app-grid">
       <aside class="decision-card">
-        <h2>Your decision</h2>
+        <h2>Decision</h2>
         <p id="decision-summary" class="decision-summary"></p>
-        <button type="button" class="run-btn" id="run">Run Blue vs Red</button>
+        <div id="company-chip" class="company-chip mono"></div>
+        <button type="button" class="run-btn" id="run">Fork futures</button>
         <p id="status" class="status" role="status"></p>
-        <label class="check"><input type="checkbox" id="baseline" checked /> Show one-shot baseline</label>
+        <label class="check"><input type="checkbox" id="baseline" checked /> Show chatbot foil</label>
       </aside>
 
       <div class="viz-shell">
         <div class="viz-toolbar">
           <div>
-            <h2>Counterfactual branches</h2>
-            <p id="run-meta" class="meta">Press run — branches grow left → right without jumping the page.</p>
+            <h2>Futures</h2>
+            <p id="run-meta" class="meta">Dead branches failed hard arithmetic.</p>
           </div>
           <div class="playback" id="playback" hidden>
-            <button type="button" id="btn-reset" title="Reset">↺</button>
-            <button type="button" id="btn-play" title="Play / Pause">▶</button>
+            <button type="button" id="btn-reset">↺</button>
+            <button type="button" id="btn-play">▶</button>
             <input id="scrub" type="range" min="0" max="0" value="0" />
             <span id="scrub-label" class="mono">0 / 0</span>
           </div>
@@ -126,15 +107,13 @@
         <div class="viz-stage" id="viz-stage">
           <svg id="graph" role="img" aria-label="Branch tree"></svg>
           <aside class="inspector" id="inspector" hidden>
-            <button type="button" class="close-insp" id="close-insp" aria-label="Close">×</button>
+            <button type="button" class="close-insp" id="close-insp">×</button>
             <p class="insp-kicker" id="insp-kicker">Branch</p>
             <h3 id="insp-title">—</h3>
             <dl id="insp-stats" class="stats"></dl>
             <p id="insp-summary" class="insp-body"></p>
             <div id="insp-kill" class="kill-box" hidden></div>
-            <h4>Findings</h4>
-            <ul id="insp-findings" class="find-list"></ul>
-            <h4>Tools</h4>
+            <h4>Evidence</h4>
             <ul id="insp-tools" class="find-list"></ul>
           </aside>
         </div>
@@ -148,20 +127,30 @@
       </div>
     </div>
 
+    <div class="reco-banner" id="reco-banner" hidden>
+      <div>
+        <p class="eyebrow">Arbiter · the date</p>
+        <h2 id="reco-title">—</h2>
+        <p id="reco-body"></p>
+        <p id="reco-date" class="date-line mono"></p>
+      </div>
+      <div class="decomp" id="reco-decomp"></div>
+    </div>
+
     <div class="lower">
       <article class="block">
-        <h2>Round log</h2>
+        <h2>Timeline</h2>
         <ol id="timeline" class="timeline"></ol>
       </article>
       <article class="block">
-        <h2>Arbiter memo</h2>
-        <div id="memo" class="memo"><p class="empty">Run to get a survivor recommendation.</p></div>
-        <h3>Baseline foil</h3>
-        <div id="baseline-out" class="baseline"><p class="empty">One-shot answer without Red.</p></div>
+        <h2>Memo</h2>
+        <div id="memo" class="memo"><p class="empty">Run to get the Arbiter write-up.</p></div>
+        <h3>Chatbot foil</h3>
+        <div id="baseline-out" class="baseline"><p class="empty">Shown after a run.</p></div>
       </article>
       <article class="block">
-        <h2>Hard constraints</h2>
-        <ul id="hard-rules"></ul>
+        <h2>Verifier registry</h2>
+        <ul id="verifier-list"></ul>
         <h3>Jac types</h3>
         <div id="schema-graph" class="schema-graph"></div>
         <div id="schema-detail" class="schema-detail"><p class="empty">Click a type.</p></div>
@@ -170,7 +159,7 @@
   </section>
 
   <footer>
-    <p>Business decisions · Blue growth · Red risk · Jac walkers on a branched graph</p>
+    <p>State → Blue → Red → Verifier → Date · No fake confidence %</p>
   </footer>
 </body>
 </html>

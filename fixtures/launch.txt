@@ -1,0 +1,3 @@
+DECISION: Should we ship on October 3rd?
+
+Company: Northline seed state.
