@@ -8,8 +8,8 @@ include fixtures;
 import json;
 import copy;
 
-glob MAX_ROUNDS: int = 3;
-glob MAX_BRANCHES: int = 12;
+glob MAX_ROUNDS: int = 5;
+glob MAX_BRANCHES: int = 24;
 
 obj Session {
     has fixture_id: str = "";
@@ -264,7 +264,16 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     for a in session.attacks {
         prior_parts.append(str(a.get("claim", "")));
     }
+    moves_seen: list = [];
+    for f in session.findings {
+        if f.get("side") == "blue" {
+            moves_seen.append(str(f.get("claim", ""))[:60]);
+        }
+    }
     prior = "; ".join(prior_parts[-3:]);
+    if moves_seen {
+        prior = prior + " || Moves ALREADY on the tree (propose something DIFFERENT): " + "; ".join(moves_seen[-5:]);
+    }
     draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no);
     tag = draft.effect_tag if draft.effect_tag else draft.move;
     is_custom = bool(draft.label) and (tag == "custom" or tag not in EFFECT_CATALOG);
@@ -665,9 +674,16 @@ def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, 
             break;
         }
         blue_children: list = [];
-        for leaf in leaves[:3] {
-            blue_children.append(blue_turn(session, leaf, r));
-            prune_if_needed(session);
+        # Custom (live) runs explore wider: round 1 forks TWO rival strategies
+        # off the seed. Cached fixtures keep the authored shape.
+        is_custom_run = session.fixture_id == "custom";
+        n_forks = 2 if (r == 1 and is_custom_run) else 1;
+        leaf_cap = 4 if is_custom_run else 3;
+        for leaf in leaves[:leaf_cap] {
+            for _ in range(n_forks) {
+                blue_children.append(blue_turn(session, leaf, r));
+                prune_if_needed(session);
+            }
         }
         red_parents: list = [];
         for c in blue_children {
@@ -678,7 +694,8 @@ def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, 
         if not red_parents {
             red_parents = blue_children[:1];
         }
-        for bp in red_parents[:3] {
+        red_cap = 4 if is_custom_run else 3;
+        for bp in red_parents[:red_cap] {
             red_turn(session, bp, r);
             prune_if_needed(session);
         }

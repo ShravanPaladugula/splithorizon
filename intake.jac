@@ -35,6 +35,20 @@ glob QUESTION_BANK: dict = {
         "field": "headcount",
         "type": "number"
     },
+    "growth": {
+        "id": "growth",
+        "prompt": "How fast is MRR growing, % per month? (0 if flat)",
+        "placeholder": "e.g. 8",
+        "field": "growth",
+        "type": "number"
+    },
+    "describe": {
+        "id": "describe",
+        "prompt": "In one sentence — what does the business do and who pays you?",
+        "placeholder": "e.g. B2B SaaS for clinics, $99/mo per seat",
+        "field": "describe",
+        "type": "text"
+    },
     "milestone": {
         "id": "milestone",
         "prompt": "What milestone are you racing toward?",
@@ -183,13 +197,10 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
         restated = str(cls["restated"]);
     }
     fixture_id = pick_fixture(modules, plan);
-    needed: list = ["cash", "burn", "milestone", "milestone_date"];
+    needed: list = ["describe", "cash", "burn", "mrr", "growth", "headcount", "milestone", "milestone_date"];
     if "hire" in modules { needed.append("hire_shape"); }
     if "launch" in modules { needed.append("launch_shape"); }
     if "runway" in modules { needed.append("raise_shape"); }
-    # Always useful once for company state
-    if "mrr" not in needed { needed.append("mrr"); }
-    if "headcount" not in needed { needed.append("headcount"); }
 
     questions: list = [];
     for qid in needed {
@@ -204,7 +215,29 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
         }
     }
 
-    ready = len(questions) == 0;
+    # Statics done → one adaptive round: Gemini writes plan-specific follow-ups,
+    # the frontend asks them one at a time, then marks _extra_done.
+    extra_questions: list = [];
+    if not questions and fixture_id == "custom" and not _answered(answers, "_extra_done") {
+        known_parts: list = [];
+        for k in answers.keys() {
+            known_parts.append(f"{k}: {answers[k]}");
+        }
+        qset = intake_followups(plan, "; ".join(known_parts));
+        for q in qset.questions[:3] {
+            if q.prompt and str(q.id) {
+                extra_questions.append({
+                    "id": f"extra_{q.id}",
+                    "prompt": str(q.prompt),
+                    "placeholder": str(q.placeholder),
+                    "field": f"extra_{q.id}",
+                    "type": "number" if str(q.qtype) == "number" else "text"
+                });
+            }
+        }
+    }
+
+    ready = len(questions) == 0 and len(extra_questions) == 0;
     proposal = build_proposal(plan, answers, modules) if ready else "";
     company = build_company_overrides(answers);
 
@@ -213,6 +246,7 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
         "restated": restated,
         "fixture_id": fixture_id,
         "questions": questions,
+        "extra_questions": extra_questions,
         "ready": ready,
         "proposal": proposal,
         "company": company,
@@ -227,6 +261,7 @@ def build_company_overrides(answers: dict) -> dict {
     if _answered(answers, "monthly_burn") { out["monthly_burn"] = float(answers["monthly_burn"]); }
     if _answered(answers, "mrr") { out["mrr"] = float(answers["mrr"]); }
     if _answered(answers, "headcount") { out["headcount"] = int(float(answers["headcount"])); }
+    if _answered(answers, "growth") { out["growth_rate"] = float(answers["growth"]) / 100.0; }
     if _answered(answers, "milestone") { out["milestone"] = str(answers["milestone"]); }
     if _answered(answers, "milestone_date") { out["milestone_date"] = str(answers["milestone_date"]); }
     return out;
@@ -241,6 +276,9 @@ def build_proposal(plan: str, answers: dict, modules: list) -> str {
     lines: list = [];
     lines.append(f"DECISION: {plan}");
     lines.append("");
+    if _answered(answers, "describe") {
+        lines.append(f"Business: {answers['describe']}.");
+    }
     lines.append(f"Modules in play: {', '.join(modules)}.");
     if hire {
         label = hire;
@@ -264,6 +302,16 @@ def build_proposal(plan: str, answers: dict, modules: list) -> str {
         lines.append(f"Fundraising posture: {label}.");
     }
     lines.append(f"Milestone: {ms} by {md}.");
+    context_parts: list = [];
+    for k in answers.keys() {
+        ks = str(k);
+        if ks.startswith("extra_") and str(answers[k]).strip() {
+            context_parts.append(f"{ks[6:].replace('_', ' ')}: {answers[k]}");
+        }
+    }
+    if context_parts {
+        lines.append(f"Business context: {'; '.join(context_parts)}.");
+    }
     lines.append("Spine: what happens to the cash-out date, and does the milestone land before it?");
     return "\n".join(lines);
 }

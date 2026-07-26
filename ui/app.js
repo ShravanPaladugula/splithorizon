@@ -52,6 +52,8 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     if (p.monthly_burn != null && p.monthly_burn !== "") a.monthly_burn = Number(p.monthly_burn);
     if (p.mrr != null && p.mrr !== "") a.mrr = Number(p.mrr);
     if (p.headcount != null && p.headcount !== "") a.headcount = Number(p.headcount);
+    if (p.growth != null && p.growth !== "") a.growth = Number(p.growth);
+    if (p.describe) a.describe = p.describe;
     if (p.milestone) a.milestone = p.milestone;
     if (p.milestone_date) a.milestone_date = p.milestone_date;
     return a;
@@ -126,9 +128,11 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     e.preventDefault();
     const profile = {
       name: $("biz-name").value.trim(),
+      describe: $("biz-describe").value.trim(),
       cash: Number($("biz-cash").value),
       monthly_burn: Number($("biz-burn").value),
       mrr: $("biz-mrr").value ? Number($("biz-mrr").value) : null,
+      growth: $("biz-growth").value ? Number($("biz-growth").value) : null,
       headcount: $("biz-headcount").value ? Number($("biz-headcount").value) : null,
       milestone: $("biz-milestone").value.trim(),
       milestone_date: $("biz-milestone-date").value,
@@ -204,6 +208,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     state.fixtureId = "interlock";
     state.proposal = INTERLOCK;
     state.company = {};
+    $("depth").value = "3"; // cached demo is authored at 3 rounds
     goWarRoom();
   });
 
@@ -239,7 +244,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     div.scrollIntoView({ block: "nearest" });
   }
 
-  function renderQuestion(q) {
+  function renderQuestion(q, onAnswer = answerAndAdvance) {
     $("intake-kicker").textContent = "Intake · one question at a time";
     $("intake-title").textContent = q.prompt;
     $("intake-help").textContent = "Answer this so the survival sim can run real arithmetic.";
@@ -259,7 +264,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
         });
         $("q-choices").appendChild(btn);
       });
-      $("q-submit").addEventListener("click", () => answerAndAdvance(q.field, picked));
+      $("q-submit").addEventListener("click", () => onAnswer(q.field, picked));
     } else {
       const inputType = q.type === "number" ? "number" : q.type === "date" ? "date" : "text";
       box.innerHTML = `
@@ -269,13 +274,35 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       $("q-submit").addEventListener("click", () => {
         const v = $("q-input").value.trim();
         if (!v) return;
-        answerAndAdvance(q.field, q.type === "number" ? Number(v) : v);
+        onAnswer(q.field, q.type === "number" ? Number(v) : v);
       });
       $("q-input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") $("q-submit").click();
       });
       setTimeout(() => $("q-input").focus(), 50);
     }
+  }
+
+  // Adaptive follow-ups are answered locally (no server round-trip per answer),
+  // then the batch is submitted with _extra_done set.
+  function askExtras(queue) {
+    if (!queue.length) {
+      state.answers._extra_done = 1;
+      $("intake-current").innerHTML = "";
+      $("intake-status").textContent = "Building your simulation brief…";
+      postIntake().then(applyIntake).catch((err) => {
+        $("intake-status").textContent = `Error: ${err.message || err}`;
+      });
+      return;
+    }
+    const q = queue[0];
+    pushThread("sys", q.prompt);
+    renderQuestion(q, (field, value) => {
+      state.answers[field] = value;
+      pushThread("you", String(value));
+      $("intake-current").innerHTML = "";
+      askExtras(queue.slice(1));
+    });
   }
 
   async function answerAndAdvance(field, value) {
@@ -310,6 +337,12 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
     const q = (data.questions || [])[0];
     if (!q) {
+      const extras = data.extra_questions || [];
+      if (extras.length) {
+        pushThread("sys", "Now a few questions specific to your plan —");
+        askExtras(extras);
+        return;
+      }
       state.proposal = data.proposal || state.plan;
       goWarRoom();
       return;
@@ -702,7 +735,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
           proposal: state.proposal,
           company: state.company || {},
           baseline: $("baseline").checked,
-          rounds: 3,
+          rounds: Number($("depth").value) || 4,
         }),
       });
       const data = await res.json();

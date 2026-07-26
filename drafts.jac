@@ -33,6 +33,17 @@ obj PlanClass {
     has restated: str = "";
 }
 
+obj IntakeQ {
+    has id: str = "";
+    has prompt: str = "";
+    has qtype: str = "text";
+    has placeholder: str = "";
+}
+
+obj IntakeQSet {
+    has questions: list[IntakeQ] = [];
+}
+
 obj MemoProse {
     has title: str;
     has recommended_reason: str;
@@ -50,6 +61,9 @@ def red_attack_llm(branch_summary: str, move: str) -> AttackDraft by llm(tempera
 
 sem classify_plan_llm = "Classify a startup founder's stated plan into the decision modules it touches, from exactly {hire, launch, runway}. Pick 1-3: hire = adding/cutting people or contractors; launch = shipping/releasing/going to market/marketing pushes/expansion; runway = anything implicating cash, burn, spend, pricing, or fundraising. Most plans that cost money should include runway. restated = one sentence restating the plan as an A-vs-B decision.";
 def classify_plan_llm(plan: str) -> PlanClass by llm(temperature=0.1);
+
+sem intake_followups_llm = "You are intake for a startup survival simulator. Given the founder's plan and what is already known about the company, write up to 3 SHORT follow-up questions whose answers would materially change how the plan plays out (costs, timelines, dependencies, current traction specific to THIS plan — e.g. for an ads plan ask CAC or conversion; for an office move ask relocation cost). Never re-ask anything in the known facts. Each: id = snake_case key, prompt = one plain-English sentence, qtype = 'number' or 'text', placeholder = short example value.";
+def intake_followups_llm(plan: str, known: str) -> IntakeQSet by llm(temperature=0.2);
 
 sem arbiter_narrate_llm = "Memo punchline is a DATE comparison. No confidence percentages.";
 def arbiter_narrate_llm(scorecards: str, findings: str) -> MemoProse by llm(temperature=0.2);
@@ -108,6 +122,24 @@ def classify_plan(plan: str) -> PlanClass {
     } except Exception as e {
         print(f"[SplitHorizon] classify_plan fallback: {e}");
         return PlanClass(modules=[], restated="");
+    }
+}
+
+def intake_followups(plan: str, known: str) -> IntakeQSet {
+    if prefer_cache() {
+        return IntakeQSet(questions=[]);
+    }
+    try {
+        return intake_followups_llm(plan, known);
+    } except Exception as e {
+        print(f"[SplitHorizon] intake_followups retry after: {e}");
+        time.sleep(LLM_RETRY_SLEEP);
+        try {
+            return intake_followups_llm(plan, known);
+        } except Exception as e2 {
+            print(f"[SplitHorizon] intake_followups fallback: {e2}");
+            return IntakeQSet(questions=[]);
+        }
     }
 }
 

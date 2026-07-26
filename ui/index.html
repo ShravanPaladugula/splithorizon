@@ -67,12 +67,14 @@
 
       <form id="business-form" class="business-form">
         <label>Business name<input id="biz-name" type="text" placeholder="e.g. Northline" required /></label>
+        <label>What does it do? (one sentence)<input id="biz-describe" type="text" placeholder="e.g. B2B SaaS for clinics, $99/mo per seat" /></label>
         <div class="form-row">
           <label>Cash in bank (USD)<input id="biz-cash" type="number" placeholder="120000" required /></label>
           <label>Monthly net burn (USD)<input id="biz-burn" type="number" placeholder="42000" required /></label>
         </div>
         <div class="form-row">
           <label>MRR (USD/mo)<input id="biz-mrr" type="number" placeholder="15000" /></label>
+          <label>MRR growth %/mo<input id="biz-growth" type="number" placeholder="8" /></label>
           <label>Headcount<input id="biz-headcount" type="number" placeholder="6" /></label>
         </div>
         <div class="form-row">
@@ -142,6 +144,13 @@
         <p id="decision-summary" class="decision-summary"></p>
         <div id="company-chip" class="company-chip mono"></div>
         <div id="modules-chip" class="modules-chip"></div>
+        <label class="check depth-label">Depth
+          <select id="depth">
+            <option value="3">3 rounds · fast</option>
+            <option value="4" selected>4 rounds</option>
+            <option value="5">5 rounds · deep</option>
+          </select>
+        </label>
         <button type="button" class="run-btn" id="run">Fork futures</button>
         <p id="status" class="status" role="status"></p>
         <label class="check"><input type="checkbox" id="baseline" checked /> Show chatbot foil</label>
