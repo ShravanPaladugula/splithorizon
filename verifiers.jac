@@ -161,6 +161,39 @@ def apply_effect(state: dict, tag: str) -> dict {
     return {"state": st, "cost_delta": float(spec.get("cost_delta", 0.0)), "tag": tag, "label": str(spec.get("label", tag))};
 }
 
+def _clamp(v: float, lo: float, hi: float) -> float {
+    if v < lo { return lo; }
+    if v > hi { return hi; }
+    return v;
+}
+
+def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int, shift_days: int, label: str) -> dict {
+    # LLM proposes bounded percentages; THIS function does the arithmetic.
+    st = copy.deepcopy(state);
+    bp = _clamp(float(burn_pct), -40.0, 80.0);
+    mp = _clamp(float(mrr_pct), -50.0, 60.0);
+    hc = int(_clamp(float(hc_delta), -3.0, 5.0));
+    sh = int(_clamp(float(shift_days), -45.0, 90.0));
+    burn_delta = float(st.get("monthly_burn", 0.0)) * bp / 100.0;
+    st["monthly_burn"] = float(st.get("monthly_burn", 0.0)) + burn_delta;
+    st["mrr"] = max(0.0, float(st.get("mrr", 0.0)) * (1.0 + mp / 100.0));
+    st["headcount"] = max(0, int(st.get("headcount", 0)) + hc);
+    if sh != 0 { st["milestone_date"] = shift_milestone(st, sh); }
+    if float(st.get("monthly_burn", 0.0)) < 1000.0 { st["monthly_burn"] = 1000.0; }
+    return {"state": st, "cost_delta": burn_delta * 3.0, "tag": "custom", "label": label};
+}
+
+def apply_stress_draft(state: dict, burn_pct: float, mrr_pct: float, shift_days: int) -> dict {
+    st = copy.deepcopy(state);
+    bp = _clamp(float(burn_pct), 0.0, 30.0);
+    mp = _clamp(float(mrr_pct), -40.0, 0.0);
+    sh = int(_clamp(float(shift_days), 0.0, 45.0));
+    st["monthly_burn"] = float(st.get("monthly_burn", 0.0)) * (1.0 + bp / 100.0);
+    st["mrr"] = max(0.0, float(st.get("mrr", 0.0)) * (1.0 + mp / 100.0));
+    if sh != 0 { st["milestone_date"] = shift_milestone(st, sh); }
+    return st;
+}
+
 def apply_stress(state: dict, tag: str) -> dict {
     st = copy.deepcopy(state);
     spec = STRESS_CATALOG[tag] if tag in STRESS_CATALOG else STRESS_CATALOG["generic"];

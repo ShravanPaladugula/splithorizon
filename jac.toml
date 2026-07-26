@@ -4,4 +4,4 @@ version = "0.1.0"
 description = "SplitHorizon — adversarial decision simulator for startup founders"
 
 [byllm.model]
-default_model = "gemini/gemini-flash-latest"
+default_model = "gemini/gemini-flash-lite-latest"

@@ -218,7 +218,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     const res = await fetch("/api/intake", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan: state.plan, answers: state.answers }),
+      body: JSON.stringify({ plan: state.plan, answers: state.answers, modules: state.modules }),
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || "Intake failed");
@@ -301,6 +301,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     state.company = data.company || {};
     if (state.profile?.name && !state.company.name) state.company.name = state.profile.name;
     showModules(state.modules);
+    if (data.restated) pushThread("sys", `Decision as I understand it: ${data.restated}`);
     $("intake-status").textContent = data.spine || "";
     if (data.ready) {
       state.proposal = data.proposal;
@@ -687,7 +688,10 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
   $("run").addEventListener("click", async () => {
     const btn = $("run");
     btn.disabled = true;
-    $("status").textContent = "Seeding CompanyState · Blue/Red · verifiers…";
+    $("status").textContent =
+      state.fixtureId === "custom"
+        ? "Live simulation: Blue/Red agents are reasoning about YOUR plan — can take a minute…"
+        : "Seeding CompanyState · Blue/Red · verifiers…";
     stopPlay();
     try {
       const res = await fetch("/api/run", {

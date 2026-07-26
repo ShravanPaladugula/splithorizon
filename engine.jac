@@ -132,8 +132,13 @@ def seed_session(proposal: str, fixture_id: str, rounds: int, company_overrides:
     fx = get_fixture(fixture_id) if fixture_id else get_fixture("interlock");
     company = seed_company_state(company_overrides);
     session.company = company;
-    session.title = str(fx.get("name", "SplitHorizon"));
-    session.domain = str(fx.get("module", "interlock"));
+    if fixture_id == "custom" {
+        session.title = "Your decision — live simulation";
+        session.domain = "custom";
+    } else {
+        session.title = str(fx.get("name", "SplitHorizon"));
+        session.domain = str(fx.get("module", "interlock"));
+    }
     session.question = proposal if proposal else str(fx.get("proposal", ""));
     session.verifier_registry = list_verifier_registry();
 
@@ -262,13 +267,27 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     prior = "; ".join(prior_parts[-3:]);
     draft = blue_propose(parent.get("summary", ""), session.question, prior, session.fixture_id, round_no);
     tag = draft.effect_tag if draft.effect_tag else draft.move;
-    label = effect_label(tag);
+    is_custom = bool(draft.label) and (tag == "custom" or tag not in EFFECT_CATALOG);
+    label = draft.label if is_custom else effect_label(tag);
     child = fork_branch(session, parent, f"R{round_no} Blue: {label[:42]}", "blue", round_no, tag);
     child["last_action"] = label;
-    child["summary"] = f"Blue: {draft.claim} [{tag}]";
+    child["summary"] = f"Blue: {draft.claim} [{label if is_custom else tag}]";
 
     prior_burn = float(parent.get("monthly_burn", 0.0));
-    applied = apply_effect(state_from_branch(parent), tag);
+    if is_custom and draft.headcount_delta == 0 {
+        # The $30k/mo hire burn-step check only applies to hiring moves —
+        # a deliberate spend (ads, infra) is judged by alive_at_milestone instead.
+        prior_burn = -1.0;
+    }
+    if is_custom {
+        applied = apply_move_draft(
+            state_from_branch(parent),
+            draft.burn_delta_pct, draft.mrr_delta_pct,
+            draft.headcount_delta, draft.milestone_shift_days, label
+        );
+    } else {
+        applied = apply_effect(state_from_branch(parent), tag);
+    }
     new_state = applied["state"];
     cost_delta = float(applied["cost_delta"]);
     bundle = verify_state(new_state, prior_burn);
@@ -283,9 +302,9 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
         "evidence": bundle.kill_reason or f"cash-out {pretty_date(bundle.cash_out_date)}"
     });
     if not child.get("alive", True) {
-        log_event(session, "blue", f"{child['id']}: {tag} [KILL] {child.get('kill_reason', '')}", child["id"]);
+        log_event(session, "blue", f"{child['id']}: {label} [KILL] {child.get('kill_reason', '')}", child["id"]);
     } else {
-        log_event(session, "blue", f"{child['id']}: {tag} → cash-out {pretty_date(bundle.cash_out_date)}", child["id"]);
+        log_event(session, "blue", f"{child['id']}: {label} → cash-out {pretty_date(bundle.cash_out_date)}", child["id"]);
     }
     return child;
 }
@@ -307,8 +326,14 @@ def red_turn(session: Session, parent: dict, round_no: int) -> dict {
     });
     session.edges.append({"type": "attacks", "from": child["id"], "to": parent["id"], "via": draft.stress_tag});
 
-    prior_burn = float(parent.get("monthly_burn", 0.0));
-    stressed = apply_stress(state_from_branch(parent), draft.stress_tag);
+    # Red stress is adversity, not a hiring decision — never trip the hire burn-step check.
+    prior_burn = -1.0;
+    is_custom_attack = draft.stress_tag == "custom" or draft.stress_tag not in STRESS_CATALOG;
+    if is_custom_attack and (draft.burn_delta_pct != 0.0 or draft.mrr_delta_pct != 0.0 or draft.milestone_shift_days != 0) {
+        stressed = apply_stress_draft(state_from_branch(parent), draft.burn_delta_pct, draft.mrr_delta_pct, draft.milestone_shift_days);
+    } else {
+        stressed = apply_stress(state_from_branch(parent), draft.stress_tag);
+    }
     bundle = verify_state(stressed, prior_burn);
     write_state_to_branch(child, stressed, bundle, 0.0);
     append_evidence(session, child["id"], bundle);
@@ -357,6 +382,7 @@ def score_branch(session: Session, b: dict) {
     }
     card = {
         "branch_id": b["id"],
+        "action": str(b.get("last_action", "") or b.get("last_stressor", "") or b.get("label", ""))[:48],
         "runway_months": b.get("runway_months", 0.0),
         "cash_out_date": b.get("cash_out_date", ""),
         "milestone_hit": b.get("milestone_hit", False),
@@ -435,8 +461,8 @@ def arbiter(session: Session) {
         a = survivors[0];
         b = survivors[1];
         date_line = (
-            f"{str(a.get('label', 'Plan A'))[:40]} cash-out {pretty_date(str(a.get('cash_out_date', '')))}. "
-            + f"{str(b.get('label', 'Plan B'))[:40]} cash-out {pretty_date(str(b.get('cash_out_date', '')))}."
+            f"{str(a.get('action') or a.get('label', 'Plan A'))[:44]}: cash-out {pretty_date(str(a.get('cash_out_date', '')))}. "
+            + f"{str(b.get('action') or b.get('label', 'Plan B'))[:44]}: cash-out {pretty_date(str(b.get('cash_out_date', '')))}."
         );
     } elif survivors {
         a = survivors[0];
@@ -467,7 +493,8 @@ def arbiter(session: Session) {
     }
     kill_txt = "; ".join(kill_claims) if kill_claims else "No hard kill shots on the recommended line.";
     prose = arbiter_narrate(json.dumps(session.scorecards)[:2000], json.dumps(session.findings)[:2000], session.fixture_id);
-    if prose.date_line {
+    if prose.date_line and session.fixture_id != "custom" {
+        # Custom runs: the deterministic cash-out comparison is the headline.
         date_line = prose.date_line;
     }
 

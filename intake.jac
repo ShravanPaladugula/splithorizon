@@ -1,7 +1,10 @@
 # Adaptive founder intake — classify plan, ask what's missing for a survival sim.
 # Stays on the masterplan spine: cash-out date vs milestone. Three modules only.
 
+include drafts;
+
 import json;
+import os;
 
 glob QUESTION_BANK: dict = {
     "cash": {
@@ -88,12 +91,12 @@ def _lower(s: str) -> str {
     return str(s).lower();
 }
 
-def classify_modules(plan: str) -> list {
+def classify_modules_keywords(plan: str) -> list {
     t = _lower(plan);
     mods: list = [];
-    hire_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team"];
-    launch_kw = ["launch", "ship", "release", "october", "friday", "ga ", "go-live", "golive", "product"];
-    runway_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge"];
+    hire_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team", "fire", "layoff"];
+    launch_kw = ["launch", "ship", "release", "go-live", "golive", "market", "expand", "product", "campaign", "customer"];
+    runway_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "buy", "invest"];
     for k in hire_kw {
         if k in t {
             if "hire" not in mods { mods.append("hire"); }
@@ -113,13 +116,44 @@ def classify_modules(plan: str) -> list {
         }
     }
     if not mods {
-        # Default: treat as open decision → ask enough to hit the spine
-        mods = ["hire", "launch"];
+        # Unknown decision — survival is always the spine; don't pretend it's hiring.
+        mods = ["runway"];
     }
     return mods;
 }
 
-def pick_fixture(modules: list) -> str {
+def classify_modules(plan: str) -> dict {
+    # LLM classification when live (understands arbitrary plans); keywords otherwise.
+    restated = "";
+    cls = classify_plan(plan);
+    mods: list = [];
+    for m in cls.modules {
+        if str(m) in ["hire", "launch", "runway"] and str(m) not in mods {
+            mods.append(str(m));
+        }
+    }
+    if mods {
+        restated = cls.restated;
+    } else {
+        mods = classify_modules_keywords(plan);
+    }
+    return {"modules": mods, "restated": restated};
+}
+
+glob DEMO_PLAN_KW: list = ["two engineer", "2 engineer", "october launch"];
+
+def pick_fixture(modules: list, plan: str) -> str {
+    # The canned interlock cache is ONLY for the demo plan. Real founder plans
+    # run live so Blue/Red address the actual decision.
+    t = _lower(plan);
+    is_demo = False;
+    for k in DEMO_PLAN_KW {
+        if k in t { is_demo = True; }
+    }
+    live = os.environ.get("SPLITHORIZON_LIVE", "") == "1";
+    if live and not is_demo {
+        return "custom";
+    }
     has_h = "hire" in modules;
     has_l = "launch" in modules;
     has_r = "runway" in modules;
@@ -138,9 +172,17 @@ def _answered(answers: dict, field: str) -> bool {
     return True;
 }
 
-def next_intake_questions(plan: str, answers: dict) -> dict {
-    modules = classify_modules(plan);
-    fixture_id = pick_fixture(modules);
+def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> dict {
+    restated = "";
+    if modules_hint {
+        # Already classified on the first call — don't re-run the LLM per answer.
+        modules = modules_hint;
+    } else {
+        cls = classify_modules(plan);
+        modules = cls["modules"];
+        restated = str(cls["restated"]);
+    }
+    fixture_id = pick_fixture(modules, plan);
     needed: list = ["cash", "burn", "milestone", "milestone_date"];
     if "hire" in modules { needed.append("hire_shape"); }
     if "launch" in modules { needed.append("launch_shape"); }
@@ -168,6 +210,7 @@ def next_intake_questions(plan: str, answers: dict) -> dict {
 
     return {
         "modules": modules,
+        "restated": restated,
         "fixture_id": fixture_id,
         "questions": questions,
         "ready": ready,

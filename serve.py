@@ -54,7 +54,7 @@ def load_fixtures() -> list[dict]:
     ]
 
 
-def run_jac_snippet(code: str, timeout: int = 60) -> str:
+def run_jac_snippet(code: str, timeout: int = 90) -> str:
     path = ROOT / "run_tmp.jac"
     path.write_text(code)
     proc = subprocess.run(
@@ -70,7 +70,7 @@ def run_jac_snippet(code: str, timeout: int = 60) -> str:
     return proc.stdout
 
 
-def run_intake(plan: str, answers: dict) -> dict:
+def run_intake(plan: str, answers: dict, modules: list | None = None) -> dict:
     OUT.mkdir(exist_ok=True)
     code = f"""include intake;
 import json;
@@ -79,7 +79,8 @@ import os;
 with entry {{
     plan = {json.dumps(plan)};
     answers = {json.dumps(answers)};
-    result = next_intake_questions(plan, answers);
+    modules = {json.dumps(modules or [])};
+    result = next_intake_questions(plan, answers, modules);
     os.makedirs("out", exist_ok=True);
     with open("out/last_intake.json", "w") as f {{
         json.dump(result, f, indent=2);
@@ -125,7 +126,7 @@ def run_engine(
         env=jac_env(),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=300,
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr or proc.stdout or f"jac exited {proc.returncode}")
@@ -196,7 +197,11 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if parsed.path == "/api/intake":
                 return self._json(
-                    run_intake(plan=body.get("plan") or "", answers=body.get("answers") or {})
+                    run_intake(
+                        plan=body.get("plan") or "",
+                        answers=body.get("answers") or {},
+                        modules=body.get("modules") or [],
+                    )
                 )
             if parsed.path == "/api/profiles":
                 return self._json(save_profile(body))
