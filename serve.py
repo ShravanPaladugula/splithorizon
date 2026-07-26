@@ -21,7 +21,7 @@ if _env_file.exists():
         _line = _line.strip()
         if _line and not _line.startswith("#") and "=" in _line:
             _k, _v = _line.split("=", 1)
-            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+            os.environ[_k.strip()] = _v.strip().strip('"').strip("'")
 JAC_BIN = os.environ.get("JAC_BIN", str(Path.home() / ".local/bin/jac"))
 if not Path(JAC_BIN).exists():
     JAC_BIN = "jac"
@@ -135,6 +135,29 @@ def run_engine(
     return json.loads(path.read_text())
 
 
+PROFILES = ROOT / "profiles.json"
+
+
+def load_profiles() -> list[dict]:
+    if PROFILES.exists():
+        try:
+            return json.loads(PROFILES.read_text())
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def save_profile(profile: dict) -> list[dict]:
+    profiles = load_profiles()
+    name = (profile.get("name") or "").strip()
+    if not name:
+        raise ValueError("Business name is required")
+    profiles = [p for p in profiles if p.get("name", "").lower() != name.lower()]
+    profiles.insert(0, profile)
+    PROFILES.write_text(json.dumps(profiles[:20], indent=2))
+    return profiles
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -152,6 +175,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not path.exists():
                 return self._json({"error": "no run yet"}, 404)
             return self._json(json.loads(path.read_text()))
+        if parsed.path == "/api/profiles":
+            return self._json(load_profiles())
         if parsed.path == "/api/schema":
             static = ROOT / "ui" / "schema.json"
             if static.exists():
@@ -173,6 +198,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(
                     run_intake(plan=body.get("plan") or "", answers=body.get("answers") or {})
                 )
+            if parsed.path == "/api/profiles":
+                return self._json(save_profile(body))
             if parsed.path == "/api/run":
                 return self._json(
                     run_engine(

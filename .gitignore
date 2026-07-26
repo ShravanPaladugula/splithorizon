@@ -1,6 +1,7 @@
 .jac/
 .cache/
 .env
+profiles.json
 out/
 __pycache__/
 *.pyc

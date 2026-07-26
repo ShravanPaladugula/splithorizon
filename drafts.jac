@@ -38,6 +38,14 @@ def arbiter_narrate_llm(scorecards: str, findings: str) -> MemoProse by llm(temp
 sem baseline_plan_llm = "One-shot confident advice with no red-team — the chatbot foil.";
 def baseline_plan_llm(text: str) -> str by llm(temperature=0.5);
 
+obj PlanNarration {
+    has analysis: str = "";
+    has watch_for: str = "";
+}
+
+sem plan_narrate_llm = "Write a decision analysis for a startup founder. analysis: 3-5 sentences on WHY the recommended plan wins on survival dates, referencing the given dates/steps only — NEVER invent numbers. watch_for: 1-2 sentences on the earliest signal the plan is going wrong.";
+def plan_narrate_llm(memo_summary: str, plan_steps: str) -> PlanNarration by llm(temperature=0.3);
+
 glob CACHE_DIR: str = "cache";
 
 def _cache_path(fixture_id: str) -> str {
@@ -134,6 +142,23 @@ def arbiter_narrate(scorecards: str, findings: str, fixture_id: str) -> MemoPros
     } except Exception as e {
         print(f"[SplitHorizon] arbiter fallback: {e}");
         return MemoProse(title="Arbiter Decision Memo", recommended_reason="Longest cash-out among alive branches", kill_shots=findings[:500], open_risks="Uncertainty remains", dissent="Red findings", date_line="");
+    }
+}
+
+def plan_narrate(memo_summary: str, plan_steps: str, fixture_id: str) -> PlanNarration {
+    cache = load_fixture_cache(fixture_id) if fixture_id else {};
+    if cache and "plan_narration" in cache {
+        d = cache["plan_narration"];
+        return PlanNarration(analysis=str(d.get("analysis", "")), watch_for=str(d.get("watch_for", "")));
+    }
+    if prefer_cache() and fixture_id {
+        return PlanNarration(analysis="", watch_for="");
+    }
+    try {
+        return plan_narrate_llm(memo_summary, plan_steps);
+    } except Exception as e {
+        print(f"[SplitHorizon] plan_narrate fallback: {e}");
+        return PlanNarration(analysis="", watch_for="");
     }
 }
 

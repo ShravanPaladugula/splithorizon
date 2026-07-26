@@ -23,6 +23,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     proposal: "",
     fixtureId: "interlock",
     company: {},
+    profile: null,
   };
 
   let runData = null, eventIndex = -1, playing = false, playTimer = null, selectedId = null, zoomBehavior = null, svgReady = false;
@@ -37,12 +38,123 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
   const money = (n) => (n == null ? "—" : `$${Number(n).toLocaleString()}`);
 
   function showView(name) {
-    ["landing", "intake", "app"].forEach((v) => {
+    ["landing", "business", "intake", "app"].forEach((v) => {
       const el = $(`view-${v}`);
       if (el) el.hidden = v !== name;
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // ---- Business profile (sign in) ----
+  function profileAnswers(p) {
+    const a = {};
+    if (p.cash != null && p.cash !== "") a.cash = Number(p.cash);
+    if (p.monthly_burn != null && p.monthly_burn !== "") a.monthly_burn = Number(p.monthly_burn);
+    if (p.mrr != null && p.mrr !== "") a.mrr = Number(p.mrr);
+    if (p.headcount != null && p.headcount !== "") a.headcount = Number(p.headcount);
+    if (p.milestone) a.milestone = p.milestone;
+    if (p.milestone_date) a.milestone_date = p.milestone_date;
+    return a;
+  }
+
+  function setProfile(p) {
+    state.profile = p;
+    try { localStorage.setItem("splithorizon_profile", JSON.stringify(p)); } catch {}
+    const chip = $("signed-in-chip");
+    chip.hidden = false;
+    chip.textContent = `Signed in: ${p.name} · ${money(p.cash)} cash · ${money(p.monthly_burn)}/mo burn`;
+  }
+
+  function restoreProfile() {
+    try {
+      const raw = localStorage.getItem("splithorizon_profile");
+      if (raw) setProfile(JSON.parse(raw));
+    } catch {}
+  }
+
+  async function loadProfileList() {
+    const box = $("profile-list");
+    box.innerHTML = "";
+    $("profile-divider").hidden = true;
+    try {
+      const res = await fetch("/api/profiles");
+      const profiles = await res.json();
+      if (!Array.isArray(profiles) || !profiles.length) return;
+      $("profile-divider").hidden = false;
+      profiles.forEach((p) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "profile-row";
+        btn.innerHTML = `<strong>${escapeHtml(p.name)}</strong><span class="mono">${money(p.cash)} cash · ${money(p.monthly_burn)}/mo · milestone ${escapeHtml(p.milestone_date || "—")}</span>`;
+        btn.addEventListener("click", () => {
+          setProfile(p);
+          state.answers = profileAnswers(p);
+          showView("intake");
+          resetIntakeKeepProfile();
+        });
+        box.appendChild(btn);
+      });
+    } catch {}
+  }
+
+  function resetIntakeKeepProfile() {
+    state.plan = "";
+    state.modules = [];
+    state.proposal = "";
+    state.company = {};
+    $("intake-plan").value = "";
+    $("intake-thread").innerHTML = "";
+    $("intake-current").innerHTML = "";
+    $("intake-plan-block").hidden = false;
+    $("intake-q-block").hidden = true;
+    $("module-pills").hidden = true;
+    $("intake-kicker").textContent = "Step 1 · Your plan";
+    $("intake-title").textContent = "What’s the plan of action?";
+    $("intake-help").textContent = state.profile
+      ? `Using ${state.profile.name}'s saved numbers — we'll only ask what's missing.`
+      : "One sentence is enough. We’ll figure out which modules apply.";
+    $("intake-status").textContent = "";
+  }
+
+  $("cta-business").addEventListener("click", () => {
+    showView("business");
+    loadProfileList();
+  });
+  $("business-back").addEventListener("click", () => showView("landing"));
+
+  $("business-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const profile = {
+      name: $("biz-name").value.trim(),
+      cash: Number($("biz-cash").value),
+      monthly_burn: Number($("biz-burn").value),
+      mrr: $("biz-mrr").value ? Number($("biz-mrr").value) : null,
+      headcount: $("biz-headcount").value ? Number($("biz-headcount").value) : null,
+      milestone: $("biz-milestone").value.trim(),
+      milestone_date: $("biz-milestone-date").value,
+    };
+    if (!profile.name) {
+      $("business-status").textContent = "Business name is required.";
+      return;
+    }
+    $("business-status").textContent = "Saving…";
+    try {
+      const res = await fetch("/api/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(profile),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || "Save failed");
+      setProfile(profile);
+      state.answers = profileAnswers(profile);
+      $("business-status").textContent = "";
+      showView("intake");
+      resetIntakeKeepProfile();
+    } catch (err) {
+      $("business-status").textContent = `Error: ${err.message || err}`;
+    }
+  });
 
   function resetIntake() {
     state.plan = "";
@@ -80,6 +192,8 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
 
   $("cta-start").addEventListener("click", () => {
     resetIntake();
+    if (state.profile) state.answers = profileAnswers(state.profile);
+    resetIntakeKeepProfile();
     showView("intake");
   });
 
@@ -185,6 +299,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     state.modules = data.modules || [];
     state.fixtureId = data.fixture_id || "interlock";
     state.company = data.company || {};
+    if (state.profile?.name && !state.company.name) state.company.name = state.profile.name;
     showModules(state.modules);
     $("intake-status").textContent = data.spine || "";
     if (data.ready) {
@@ -209,7 +324,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       return;
     }
     state.plan = plan;
-    state.answers = {};
+    state.answers = state.profile ? profileAnswers(state.profile) : {};
     $("intake-plan-block").hidden = true;
     $("intake-q-block").hidden = false;
     $("intake-thread").innerHTML = "";
@@ -505,6 +620,29 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     $("reco-banner").hidden = false;
     $("reco-title").textContent = m.date_line || m.title || "Survivor";
     $("reco-body").textContent = m.prose || "";
+    renderPlan(m);
+  }
+
+  function renderPlan(m) {
+    const steps = m.action_plan || [];
+    const block = $("plan-block");
+    if (!steps.length && !m.analysis) {
+      block.hidden = true;
+      return;
+    }
+    block.hidden = false;
+    $("plan-analysis").textContent = m.analysis || "";
+    const watch = $("plan-watch");
+    if (m.watch_for) {
+      watch.hidden = false;
+      watch.textContent = `Watch for: ${m.watch_for}`;
+    } else watch.hidden = true;
+    $("plan-steps").innerHTML = steps
+      .map(
+        (s) =>
+          `<li class="plan-step ${s.when === "Avoid" ? "avoid" : ""}"><span class="plan-when mono">${escapeHtml(s.when)}</span><div><strong>${escapeHtml(s.title)}</strong><p>${escapeHtml(s.detail)}</p></div></li>`
+      )
+      .join("");
   }
 
   function renderTimeline(data) {
@@ -578,5 +716,6 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
   });
 
+  restoreProfile();
   showView("landing");
 })();

@@ -25,8 +25,10 @@
       </p>
       <div class="hero-actions-row">
         <button type="button" class="run-btn hero-cta" id="cta-start">Simulate my decision</button>
+        <button type="button" class="ghost-btn" id="cta-business">Add your business</button>
         <button type="button" class="ghost-btn" id="cta-demo">Try the hire × launch demo</button>
       </div>
+      <p class="signed-in mono" id="signed-in-chip" hidden></p>
     </header>
 
     <div class="compare" aria-label="Thesis">
@@ -50,6 +52,37 @@
       <li><span class="step-n">5 · Red</span><h3>Attack</h3><p>Stress the plan; verifiers kill with visible dates.</p></li>
       <li><span class="step-n">6 · Date</span><h3>Arbiter</h3><p>Which future keeps you alive past the milestone?</p></li>
     </ol>
+  </section>
+
+  <!-- Business profile (sign in) -->
+  <section id="view-business" class="view business" hidden>
+    <div class="wizard-shell business-shell">
+      <button type="button" class="text-btn" id="business-back">← Back</button>
+      <p class="eyebrow">Your business</p>
+      <h2>Sign in to your business</h2>
+      <p class="lede tight">Save your company state once — every simulation starts from it and the intake skips what we already know.</p>
+
+      <div id="profile-list" class="profile-list"></div>
+      <p class="divider-label" id="profile-divider" hidden>or add a new one</p>
+
+      <form id="business-form" class="business-form">
+        <label>Business name<input id="biz-name" type="text" placeholder="e.g. Northline" required /></label>
+        <div class="form-row">
+          <label>Cash in bank (USD)<input id="biz-cash" type="number" placeholder="120000" required /></label>
+          <label>Monthly net burn (USD)<input id="biz-burn" type="number" placeholder="42000" required /></label>
+        </div>
+        <div class="form-row">
+          <label>MRR (USD/mo)<input id="biz-mrr" type="number" placeholder="15000" /></label>
+          <label>Headcount<input id="biz-headcount" type="number" placeholder="6" /></label>
+        </div>
+        <div class="form-row">
+          <label>Milestone<input id="biz-milestone" type="text" placeholder="Public launch" /></label>
+          <label>Milestone date<input id="biz-milestone-date" type="date" /></label>
+        </div>
+        <button type="submit" class="run-btn">Save &amp; continue</button>
+        <p id="business-status" class="status" role="status"></p>
+      </form>
+    </div>
   </section>
 
   <!-- Adaptive intake -->
@@ -156,6 +189,16 @@
         <h2 id="reco-title">—</h2>
         <p id="reco-body"></p>
       </div>
+    </div>
+
+    <div class="plan-block" id="plan-block" hidden>
+      <div class="plan-head">
+        <p class="eyebrow">Decision analysis · plan of action</p>
+        <h2>What to actually do</h2>
+      </div>
+      <p id="plan-analysis" class="plan-analysis"></p>
+      <p id="plan-watch" class="plan-watch" hidden></p>
+      <ol id="plan-steps" class="plan-steps"></ol>
     </div>
 
     <div class="lower">

@@ -502,6 +502,112 @@ def arbiter(session: Session) {
         }
     }
 
+    # ---- Decision analysis + plan of action (deterministic; LLM narrates when live) ----
+    path_moves: list = [];
+    cur = best_full;
+    while cur and cur.get("parent_id") {
+        if cur.get("side_created") == "blue" and cur.get("last_action") {
+            path_moves.insert(0, cur);
+        }
+        cur = branch_by_id(session, str(cur.get("parent_id", "")));
+    }
+
+    steps: list = [];
+    for mv in path_moves {
+        par = branch_by_id(session, str(mv.get("parent_id", "")));
+        delta = float(mv.get("monthly_burn", 0.0)) - float(par.get("monthly_burn", 0.0)) if par else 0.0;
+        delta_txt = f"+${delta:,.0f}/mo burn" if delta > 0 else (f"saves ${-delta:,.0f}/mo" if delta < 0 else "burn unchanged");
+        steps.append({
+            "when": "Now",
+            "title": f"Execute: {mv.get('last_action', mv.get('move', ''))}",
+            "detail": f"{delta_txt} — cash-out moves to {pretty_date(str(mv.get('cash_out_date', '')))}."
+        });
+    }
+    if not steps and best_full {
+        steps.append({
+            "when": "Now",
+            "title": "Hold the current plan",
+            "detail": f"Seed state already survives to {pretty_date(str(best_full.get('cash_out_date', '')))}."
+        });
+    }
+
+    seen_avoid: set = set();
+    for d in dead {
+        if len(seen_avoid) >= 3 {
+            break;
+        }
+        title_key = str(d.get("last_action", d.get("label", d["id"])))[:48];
+        if d.get("kill_reason") and title_key not in seen_avoid {
+            seen_avoid.add(title_key);
+            steps.append({
+                "when": "Avoid",
+                "title": f"Do not take the {title_key} path",
+                "detail": f"Killed: {str(d.get('kill_reason', ''))[:120]}"
+            });
+        }
+    }
+
+    best_cash_out = str(best_full.get("cash_out_date", "")) if best_full else "";
+    best_ms_date = str(best_full.get("milestone_date", "")) if best_full else "";
+    margin_days = 0;
+    if best_cash_out and best_ms_date {
+        margin_days = days_between(best_ms_date, best_cash_out);
+    }
+    if best_full and float(best_full.get("runway_months", 99.0)) < 9.0 and best_cash_out {
+        raise_by = add_days(best_cash_out, -90);
+        steps.append({
+            "when": pretty_date(raise_by),
+            "title": "Start the raise (or cut burn)",
+            "detail": f"3 months before cash-out {pretty_date(best_cash_out)}; do not start a fundraise with less runway than that."
+        });
+    }
+    if best_ms_date {
+        steps.append({
+            "when": pretty_date(best_ms_date),
+            "title": f"Milestone checkpoint: {str(best_full.get('milestone', 'milestone')) if best_full else 'milestone'}",
+            "detail": (
+                f"Must land before cash-out {pretty_date(best_cash_out)} — margin {margin_days} days."
+                if margin_days > 0
+                else f"Cash-out {pretty_date(best_cash_out)} lands first — this line only works if the milestone unlocks cash."
+            )
+        });
+    }
+
+    analysis_bits: list = [];
+    if best_full {
+        analysis_bits.append(
+            f"Recommended {best_id} ({str(best_full.get('last_action', 'seed state'))}) survives to {pretty_date(best_cash_out)}"
+            + (f", clearing the milestone by {margin_days} days." if margin_days > 0 else ".")
+        );
+    }
+    if len(survivors) >= 2 {
+        runner = survivors[1];
+        analysis_bits.append(
+            f"Next-best {runner.get('branch_id')} cash-out {pretty_date(str(runner.get('cash_out_date', '')))} — "
+            + f"ranked below on runway + milestone."
+        );
+    }
+    if dead {
+        analysis_bits.append(f"{len(dead)} branch(es) failed hard arithmetic — killed by verifiers, not opinion.");
+    }
+    if decomp["unmitigated_attacks"] > 0 {
+        analysis_bits.append(f"{decomp['unmitigated_attacks']} Red attack(s) on this line remain unmitigated — see plan.");
+    }
+    analysis = " ".join(analysis_bits);
+    watch_for = "";
+
+    steps_txt_parts: list = [];
+    for st in steps {
+        steps_txt_parts.append(f"[{st['when']}] {st['title']} — {st['detail']}");
+    }
+    narration = plan_narrate(date_line + " | " + analysis, "\n".join(steps_txt_parts), session.fixture_id);
+    if narration.analysis {
+        analysis = narration.analysis;
+    }
+    if narration.watch_for {
+        watch_for = narration.watch_for;
+    }
+
     session.memo = {
         "recommended_branch_id": best_id,
         "title": prose.title,
@@ -511,6 +617,9 @@ def arbiter(session: Session) {
         "dissent": dissent,
         "date_line": date_line,
         "decomposition": decomp,
+        "analysis": analysis,
+        "watch_for": watch_for,
+        "action_plan": steps,
         "baseline_foil": session.baseline
     };
     log_event(session, "arbiter", f"Recommended {best_id}: {date_line}", best_id);
