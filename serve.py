@@ -12,7 +12,16 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "out"
-CACHE = ROOT / "cache"
+
+# Load .env (OPENAI_API_KEY, SPLITHORIZON_LIVE, ...) so live LLM mode
+# only requires dropping a key into splithorizon/.env and restarting.
+_env_file = ROOT / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
 JAC_BIN = os.environ.get("JAC_BIN", str(Path.home() / ".local/bin/jac"))
 if not Path(JAC_BIN).exists():
     JAC_BIN = "jac"
@@ -28,30 +37,81 @@ def jac_env() -> dict:
 
 
 def load_fixtures() -> list[dict]:
-    interlock = (ROOT / "fixtures" / "interlock.txt").read_text() if (ROOT / "fixtures" / "interlock.txt").exists() else (
-        "DECISION: Should we hire two engineers to hit the October launch?"
+    interlock = (
+        (ROOT / "fixtures" / "interlock.txt").read_text()
+        if (ROOT / "fixtures" / "interlock.txt").exists()
+        else "DECISION: Should we hire two engineers to hit the October launch?"
     )
     return [
-        {"id": "interlock", "name": "Interlock — Hire two engineers to hit October launch?", "proposal": interlock},
-        {"id": "hire", "name": "Hiring — Two eng vs one + contractor", "proposal": "DECISION: Two engineers now, or one plus a contractor?"},
-        {"id": "launch", "name": "Launch — Ship October 3?", "proposal": "DECISION: Should we ship on October 3rd?"},
-        {"id": "runway", "name": "Runway — When do we start raising?", "proposal": "DECISION: How long do we have, when do we start raising?"},
+        {
+            "id": "interlock",
+            "name": "Interlock — Hire two engineers to hit October launch?",
+            "proposal": interlock,
+        },
+        {"id": "hire", "name": "Hiring", "proposal": "DECISION: Two engineers now, or one plus a contractor?"},
+        {"id": "launch", "name": "Launch", "proposal": "DECISION: Should we ship on October 3rd?"},
+        {"id": "runway", "name": "Runway", "proposal": "DECISION: How long do we have, when do we start raising?"},
     ]
 
 
-def run_engine(fixture_id: str, proposal: str, rounds: int = 3, baseline: bool = True) -> dict:
+def run_jac_snippet(code: str, timeout: int = 60) -> str:
+    path = ROOT / "run_tmp.jac"
+    path.write_text(code)
+    proc = subprocess.run(
+        [JAC_BIN, "run", str(path)],
+        cwd=str(ROOT),
+        env=jac_env(),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr or proc.stdout or f"jac exited {proc.returncode}")
+    return proc.stdout
+
+
+def run_intake(plan: str, answers: dict) -> dict:
     OUT.mkdir(exist_ok=True)
+    code = f"""include intake;
+import json;
+import os;
+
+with entry {{
+    plan = {json.dumps(plan)};
+    answers = {json.dumps(answers)};
+    result = next_intake_questions(plan, answers);
+    os.makedirs("out", exist_ok=True);
+    with open("out/last_intake.json", "w") as f {{
+        json.dump(result, f, indent=2);
+    }}
+    print("OK");
+}}
+"""
+    run_jac_snippet(code)
+    return json.loads((OUT / "last_intake.json").read_text())
+
+
+def run_engine(
+    fixture_id: str,
+    proposal: str,
+    rounds: int = 3,
+    baseline: bool = True,
+    company: dict | None = None,
+) -> dict:
+    OUT.mkdir(exist_ok=True)
+    company = company or {}
     runner = ROOT / "run_once.jac"
     runner.write_text(
         "include engine;\ninclude fixtures;\nimport json;\nimport os;\n\n"
         "with entry {\n"
         f"    fid = {json.dumps(fixture_id)};\n"
         f"    text = {json.dumps(proposal)};\n"
+        f"    company = {json.dumps(company)};\n"
         "    if not text {\n"
         "        fx = get_fixture(fid);\n"
         "        if fx { text = str(fx[\"proposal\"]); }\n"
         "    }\n"
-        f"    result = run_protocol(text, fid, {int(rounds)}, {str(baseline)});\n"
+        f"    result = run_protocol(text, fid, {int(rounds)}, {str(baseline)}, company);\n"
         "    os.makedirs(\"out\", exist_ok=True);\n"
         "    with open(\"out/last_run.json\", \"w\") as f {\n"
         "        json.dump(result, f, indent=2);\n"
@@ -106,19 +166,24 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/api/run":
-            self.send_error(404)
-            return
         length = int(self.headers.get("Content-Length", "0"))
         body = json.loads(self.rfile.read(length) or b"{}")
         try:
-            result = run_engine(
-                fixture_id=body.get("fixture_id") or "interlock",
-                proposal=body.get("proposal") or "",
-                rounds=int(body.get("rounds") or 3),
-                baseline=bool(body.get("baseline", True)),
-            )
-            self._json(result)
+            if parsed.path == "/api/intake":
+                return self._json(
+                    run_intake(plan=body.get("plan") or "", answers=body.get("answers") or {})
+                )
+            if parsed.path == "/api/run":
+                return self._json(
+                    run_engine(
+                        fixture_id=body.get("fixture_id") or "interlock",
+                        proposal=body.get("proposal") or "",
+                        rounds=int(body.get("rounds") or 3),
+                        baseline=bool(body.get("baseline", True)),
+                        company=body.get("company") or {},
+                    )
+                )
+            self.send_error(404)
         except Exception as e:  # noqa: BLE001
             self._json({"error": str(e)}, 500)
 
@@ -137,20 +202,15 @@ class Handler(SimpleHTTPRequestHandler):
 def ensure_fixture_texts():
     fx = ROOT / "fixtures"
     fx.mkdir(exist_ok=True)
-    texts = {
-        "interlock": (
+    p = fx / "interlock.txt"
+    if not p.exists():
+        p.write_text(
             "DECISION: Should we hire two engineers to hit the October launch?\n\n"
-            "Company: Northline (seed CompanyState).\n"
-            "Tempted move: Hire two full-time engineers now so October 3 still lands.\n"
+            "Company: Northline seed state.\n"
+            "Tempted move: Hire two FTEs now so October 3 still lands.\n"
             "Counter-move: One engineer + contractor.\n"
-            "Spine: what happens to the cash-out date, and does the milestone land before it?"
-        ),
-        "hire": "DECISION: Two engineers now, or one plus a contractor?\n\nCompany: Northline seed state.",
-        "launch": "DECISION: Should we ship on October 3rd?\n\nCompany: Northline seed state.",
-        "runway": "DECISION: How long do we have, when do we start raising?\n\nCompany: Northline seed state.",
-    }
-    for k, v in texts.items():
-        (fx / f"{k}.txt").write_text(v)
+            "Spine: cash-out date vs milestone.\n"
+        )
 
 
 def main():
@@ -158,7 +218,6 @@ def main():
     port = int(os.environ.get("PORT", "8765"))
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"SplitHorizon UI → http://127.0.0.1:{port}")
-    print(f"Jac: {JAC_BIN}  JAC_HOME={JAC_HOME}  offline cache default")
     server.serve_forever()
 
 

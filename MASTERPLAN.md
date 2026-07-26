@@ -12,6 +12,10 @@
 2. **Runway & burn** — "How long do we have, when do we start raising?" *(the spine)*
 3. **Hiring plan** — "Two engineers now, or one plus a contractor?"
 
+## Adaptive intake (platform surface)
+
+Not locked to one prompt. Founders type a **plan of action**; Jac intake classifies **hire / launch / runway** (or interlock when hire+launch), then asks **one missing question at a time** (cash, burn, milestone date, move shape). Same spine — cash-out vs milestone. Demo CTA still loads the hire × launch interlock.
+
 ## Interlock demo (THE demo)
 
 > Should we hire two engineers to hit the October launch?

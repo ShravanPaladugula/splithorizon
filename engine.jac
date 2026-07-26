@@ -127,10 +127,10 @@ def append_evidence(session: Session, branch_id: str, bundle: VerifyBundle) {
     }
 }
 
-def seed_session(proposal: str, fixture_id: str, rounds: int) -> Session {
+def seed_session(proposal: str, fixture_id: str, rounds: int, company_overrides: dict = {}) -> Session {
     session = Session(fixture_id=fixture_id, proposal=proposal, rounds=rounds);
     fx = get_fixture(fixture_id) if fixture_id else get_fixture("interlock");
-    company = seed_company_state();
+    company = seed_company_state(company_overrides);
     session.company = company;
     session.title = str(fx.get("name", "SplitHorizon"));
     session.domain = str(fx.get("module", "interlock"));
@@ -516,8 +516,8 @@ def arbiter(session: Session) {
     log_event(session, "arbiter", f"Recommended {best_id}: {date_line}", best_id);
 }
 
-def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, run_baseline: bool = True) -> dict {
-    session = seed_session(proposal, fixture_id, rounds);
+def run_protocol(proposal: str, fixture_id: str = "interlock", rounds: int = 3, run_baseline: bool = True, company_overrides: dict = {}) -> dict {
+    session = seed_session(proposal, fixture_id, rounds, company_overrides);
     if run_baseline {
         session.baseline = baseline_plan(proposal if proposal else session.question, fixture_id);
     }

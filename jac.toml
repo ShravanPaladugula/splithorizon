@@ -1,17 +1,7 @@
 [project]
 name = "splithorizon"
 version = "0.1.0"
-description = "Adversarial counterfactual decision engine — Blue/Red walkers fork a world graph"
-entry_point = "main.jac"
+description = "SplitHorizon — adversarial decision simulator for startup founders"
 
 [byllm.model]
-default_model = "gpt-4o-mini"
-
-[byllm.call_params]
-temperature = 0.2
-
-[byllm]
-system_prompt = "You are SplitHorizon, an adversarial counterfactual decision engine. Be concrete, numeric when possible, and never invent tool results."
-
-[run]
-port = 8000
+default_model = "gpt-4o"

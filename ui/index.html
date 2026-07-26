@@ -17,41 +17,63 @@
 
   <section id="view-landing" class="view landing">
     <header class="hero">
-      <p class="eyebrow">Decision simulator · Jac walkers · deterministic verifiers</p>
+      <p class="eyebrow">Founder decision platform · Jac walkers · deterministic verifiers</p>
       <h1>SplitHorizon</h1>
       <p class="lede">
-        A chatbot gives you advice. SplitHorizon gives you a <em>date</em> —
-        when cash runs out, and whether your milestone lands before it.
+        Tell us the plan you’re about to make. We’ll ask only what’s needed to simulate
+        cash-out vs your milestone — then Blue and Red fight over the futures.
       </p>
-      <button type="button" class="run-btn hero-cta" id="cta-start">Run the interlock demo</button>
+      <div class="hero-actions-row">
+        <button type="button" class="run-btn hero-cta" id="cta-start">Simulate my decision</button>
+        <button type="button" class="ghost-btn" id="cta-demo">Try the hire × launch demo</button>
+      </div>
     </header>
 
     <div class="compare" aria-label="Thesis">
       <div class="compare-col weak">
         <p class="compare-kicker">Chatbot</p>
         <p class="pipeline mono">Prompt → Opinion</p>
-        <p>“Hire the two engineers.” Sounds confident. No arithmetic.</p>
+        <p>Locked to one clever answer. No company arithmetic.</p>
       </div>
       <div class="compare-col strong">
         <p class="compare-kicker">SplitHorizon</p>
-        <p class="pipeline mono">State → Blue → Red → Verifier → Date</p>
-        <p>Futures fork. Hard checks kill. Survivors ranked by survival.</p>
+        <p class="pipeline mono">Your plan → Adaptive intake → Blue/Red → Date</p>
+        <p>Three modules only (hire · launch · runway). One spine: survival.</p>
       </div>
     </div>
 
     <ol class="mvp-steps">
-      <li><span class="step-n">1 · Seed</span><h3>CompanyState</h3><p>Cash, burn, MRR, headcount, milestone date.</p></li>
-      <li><span class="step-n">2 · Blue</span><h3>Propose moves</h3><p>Claims and effect tags — never invents figures.</p></li>
-      <li><span class="step-n">3 · Red</span><h3>Attack</h3><p>Stress the plan; verifiers supply the numbers.</p></li>
-      <li><span class="step-n">4 · Verify</span><h3>Hard arithmetic</h3><p>Cash-out vs milestone. Brutal kills with visible dates.</p></li>
-      <li><span class="step-n">5 · Branches</span><h3>Futures</h3><p>Dead greyed. Survivors still alive at the milestone.</p></li>
-      <li><span class="step-n">6 · Arbiter</span><h3>A date</h3><p>No confidence %. Survival months + evidence.</p></li>
+      <li><span class="step-n">1 · Plan</span><h3>You start</h3><p>One sentence: the action you’re tempted to take.</p></li>
+      <li><span class="step-n">2 · Intake</span><h3>We ask back</h3><p>Only the missing numbers for cash-out vs milestone.</p></li>
+      <li><span class="step-n">3 · Modules</span><h3>Hire · Launch · Runway</h3><p>Whichever your plan touches — not eleven calculators.</p></li>
+      <li><span class="step-n">4 · Blue</span><h3>Defend</h3><p>Jac walker proposes moves as effect tags — never invents figures.</p></li>
+      <li><span class="step-n">5 · Red</span><h3>Attack</h3><p>Stress the plan; verifiers kill with visible dates.</p></li>
+      <li><span class="step-n">6 · Date</span><h3>Arbiter</h3><p>Which future keeps you alive past the milestone?</p></li>
     </ol>
+  </section>
 
-    <p class="example-line">
-      Interlock: <strong>“Should we hire two engineers to hit the October launch?”</strong>
-      Hire raises burn; launch may land sooner — opposite pulls.
-    </p>
+  <!-- Adaptive intake -->
+  <section id="view-intake" class="view intake" hidden>
+    <div class="wizard-shell intake-shell">
+      <button type="button" class="text-btn" id="intake-back">← Back</button>
+      <p class="eyebrow" id="intake-kicker">Step 1 · Your plan</p>
+      <h2 id="intake-title">What’s the plan of action?</h2>
+      <p class="lede tight" id="intake-help">One sentence is enough. We’ll figure out which modules apply.</p>
+
+      <div id="intake-plan-block">
+        <textarea id="intake-plan" rows="3" maxlength="500"
+          placeholder="e.g. Hire two engineers so we can still hit the October launch"></textarea>
+        <div class="module-pills" id="module-pills" hidden></div>
+        <button type="button" class="run-btn" id="intake-plan-next">Continue</button>
+      </div>
+
+      <div id="intake-q-block" hidden>
+        <div id="intake-thread" class="intake-thread"></div>
+        <div id="intake-current" class="intake-current"></div>
+      </div>
+
+      <p id="intake-status" class="status" role="status"></p>
+    </div>
   </section>
 
   <section id="view-app" class="view app" hidden>
@@ -60,11 +82,11 @@
         <p class="eyebrow">War room</p>
         <h1 class="app-brand">SplitHorizon</h1>
       </div>
-      <button type="button" class="ghost-btn" id="btn-new">← Thesis</button>
+      <button type="button" class="ghost-btn" id="btn-new">New decision</button>
     </header>
 
     <div class="schema-rail" id="schema-rail">
-      <p class="schema-lead-label">Pipeline · left → right</p>
+      <p class="schema-lead-label">Pipeline · left → right · Jac</p>
       <div class="schema-track">
         <button type="button" class="schema-node" data-schema="seed">1 Seed</button>
         <span class="schema-arrow"></span>
@@ -83,9 +105,10 @@
 
     <div class="app-grid">
       <aside class="decision-card">
-        <h2>Decision</h2>
+        <h2>Your decision</h2>
         <p id="decision-summary" class="decision-summary"></p>
         <div id="company-chip" class="company-chip mono"></div>
+        <div id="modules-chip" class="modules-chip"></div>
         <button type="button" class="run-btn" id="run">Fork futures</button>
         <p id="status" class="status" role="status"></p>
         <label class="check"><input type="checkbox" id="baseline" checked /> Show chatbot foil</label>
@@ -129,28 +152,26 @@
 
     <div class="reco-banner" id="reco-banner" hidden>
       <div>
-        <p class="eyebrow">Arbiter · the date</p>
+        <p class="eyebrow">Arbiter · a date</p>
         <h2 id="reco-title">—</h2>
         <p id="reco-body"></p>
-        <p id="reco-date" class="date-line mono"></p>
       </div>
-      <div class="decomp" id="reco-decomp"></div>
     </div>
 
     <div class="lower">
       <article class="block">
-        <h2>Timeline</h2>
+        <h2>What happened</h2>
         <ol id="timeline" class="timeline"></ol>
       </article>
       <article class="block">
         <h2>Memo</h2>
-        <div id="memo" class="memo"><p class="empty">Run to get the Arbiter write-up.</p></div>
+        <div id="memo" class="memo"><p class="empty">Run to get the date line.</p></div>
         <h3>Chatbot foil</h3>
-        <div id="baseline-out" class="baseline"><p class="empty">Shown after a run.</p></div>
+        <div id="baseline-out" class="baseline"><p class="empty">One-shot opinion.</p></div>
       </article>
       <article class="block">
         <h2>Verifier registry</h2>
-        <ul id="verifier-list"></ul>
+        <ul id="hard-rules"></ul>
         <h3>Jac types</h3>
         <div id="schema-graph" class="schema-graph"></div>
         <div id="schema-detail" class="schema-detail"><p class="empty">Click a type.</p></div>
@@ -159,7 +180,7 @@
   </section>
 
   <footer>
-    <p>State → Blue → Red → Verifier → Date · No fake confidence %</p>
+    <p>Hire · Launch · Runway · Survival dates · Jac walkers · LLM proposes · Tools compute</p>
   </footer>
 </body>
 </html>

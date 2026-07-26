@@ -41,8 +41,15 @@ glob FIXTURES: dict = {
     }
 };
 
-def seed_company_state() -> dict {
-    return copy.deepcopy(SEED_COMPANY);
+def seed_company_state(overrides: dict = {}) -> dict {
+    c = copy.deepcopy(SEED_COMPANY);
+    for k in overrides.keys() {
+        c[k] = overrides[k];
+    }
+    if overrides {
+        c["name"] = str(overrides.get("name", c.get("name", "Your company")));
+    }
+    return c;
 }
 
 def list_fixtures() -> list {
