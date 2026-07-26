@@ -492,8 +492,8 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
 
   function defaultShapesForModules(mods) {
     const a = {};
-    if ((mods || []).includes("finance")) a.finance_shape = "raise_soon";
-    if ((mods || []).includes("management")) a.management_shape = "hold";
+    if ((mods || []).includes("finance")) a.finance_shape = "fund";
+    if ((mods || []).includes("management")) a.management_shape = "full";
     if ((mods || []).includes("launch")) a.launch_shape = "staged";
     if ((mods || []).includes("publicity")) a.publicity_shape = "paid";
     return a;

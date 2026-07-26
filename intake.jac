@@ -91,20 +91,20 @@ glob QUESTION_BANK: dict = {
     },
     "management_shape": {
         "id": "management_shape",
-        "prompt": "Management desk — what's the org move you're tempted to make?",
+        "prompt": "Management desk — how hard do you want to run the org move in your plan?",
         "placeholder": "",
         "field": "management_shape",
         "type": "choice",
         "choices": [
-            {"id": "two_eng", "label": "Hire two full-time engineers now"},
-            {"id": "one_plus", "label": "One engineer + a contractor"},
-            {"id": "infra", "label": "Invest in infra / tools, hold headcount"},
-            {"id": "hold", "label": "Hold hiring / stay lean"}
+            {"id": "full", "label": "Full scope — do the plan as written"},
+            {"id": "half", "label": "Half scope — smaller team / staged seats"},
+            {"id": "alt", "label": "Alternative — contractors / tools instead of FTEs"},
+            {"id": "hold", "label": "Hold — skip the org move this cycle"}
         ]
     },
     "launch_shape": {
         "id": "launch_shape",
-        "prompt": "Launch desk — how are you thinking about shipping?",
+        "prompt": "Launch desk — how aggressive is the ship?",
         "placeholder": "",
         "field": "launch_shape",
         "type": "choice",
@@ -116,25 +116,25 @@ glob QUESTION_BANK: dict = {
     },
     "finance_shape": {
         "id": "finance_shape",
-        "prompt": "Finance desk — what's the money move?",
+        "prompt": "Finance desk — how do you want money to support this plan?",
         "placeholder": "",
         "field": "finance_shape",
         "type": "choice",
         "choices": [
-            {"id": "raise_soon", "label": "Start raising soon"},
-            {"id": "extend", "label": "Extend runway / cut burn first"},
-            {"id": "price_up", "label": "Raise prices / push MRR"},
-            {"id": "none", "label": "Hold cash posture this cycle"}
+            {"id": "fund", "label": "Fund the plan fully (raise or spend as needed)"},
+            {"id": "tight", "label": "Tight budget — only the minimum cash to try it"},
+            {"id": "price_up", "label": "Fund it from pricing / MRR lift"},
+            {"id": "none", "label": "No new money posture — use current cash only"}
         ]
     },
     "publicity_shape": {
         "id": "publicity_shape",
-        "prompt": "Publicity desk — how are you going to market this?",
+        "prompt": "Publicity desk — how loud is the go-to-market?",
         "placeholder": "",
         "field": "publicity_shape",
         "type": "choice",
         "choices": [
-            {"id": "paid", "label": "Paid ads / paid acquisition push"},
+            {"id": "paid", "label": "Paid / paid acquisition push"},
             {"id": "influencer", "label": "Influencer / creator partnerships"},
             {"id": "organic", "label": "Organic / content / community first"},
             {"id": "hold_mkt", "label": "Hold marketing spend"}
@@ -286,29 +286,20 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
             }
         }
         if not extra_questions {
-            extra_questions = [
-                {
-                    "id": "extra_plan_cash",
-                    "prompt": "How much cash does this plan spend in the next 90 days (USD)?",
-                    "placeholder": "e.g. 40000",
-                    "field": "extra_plan_cash",
-                    "type": "number"
-                },
-                {
-                    "id": "extra_burn_delta",
-                    "prompt": "What does it do to monthly burn after that (USD / month, negative = cut)?",
-                    "placeholder": "e.g. 10000",
-                    "field": "extra_burn_delta",
-                    "type": "number"
-                },
-                {
-                    "id": "extra_success_signal",
-                    "prompt": "What early signal tells you the plan is working?",
-                    "placeholder": "e.g. +15% MoM MRR in 60 days",
-                    "field": "extra_success_signal",
-                    "type": "text"
+            # Never fall back to generic cash/burn — reuse plan-adaptive follow-ups.
+            fb = fallback_intake_followups(plan);
+            for q in fb.questions {
+                field = f"extra_{q.id}";
+                if not _answered(answers, field) {
+                    extra_questions.append({
+                        "id": field,
+                        "prompt": str(q.prompt),
+                        "placeholder": str(q.placeholder),
+                        "field": field,
+                        "type": "number" if str(q.qtype) == "number" else "text"
+                    });
                 }
-            ];
+            }
         }
     }
 
@@ -359,6 +350,9 @@ def build_company_overrides(answers: dict) -> dict {
     elif _answered(answers, "plan_cash") { out["plan_cash"] = float(answers["plan_cash"]); }
     if _answered(answers, "extra_burn_delta") { out["plan_burn_delta"] = float(answers["extra_burn_delta"]); }
     elif _answered(answers, "burn_delta") { out["plan_burn_delta"] = float(answers["burn_delta"]); }
+    if _answered(answers, "extra_loaded_cost") { out["plan_burn_delta"] = float(answers["extra_loaded_cost"]); }
+    elif _answered(answers, "loaded_cost") { out["plan_burn_delta"] = float(answers["loaded_cost"]); }
+    if _answered(answers, "extra_spend_usd") { out["plan_cash"] = float(answers["extra_spend_usd"]); }
     return out;
 }
 
@@ -387,10 +381,10 @@ def build_proposal(plan: str, answers: dict, modules: list) -> str {
     lines.append(f"Consult desks: {', '.join(modules)}.");
     if mgmt {
         label = mgmt;
-        if mgmt == "two_eng" { label = "Hire two full-time engineers now"; }
-        elif mgmt == "one_plus" { label = "One engineer + contractor"; }
-        elif mgmt == "infra" { label = "Invest in infra / tools, hold headcount"; }
-        elif mgmt == "hold" { label = "Hold hiring / stay lean"; }
+        if mgmt == "full" or mgmt == "two_eng" { label = "Execute the stated org move at full scope"; }
+        elif mgmt == "half" or mgmt == "one_plus" { label = "Half-scope / staged org move"; }
+        elif mgmt == "alt" or mgmt == "infra" { label = "Alternative: contractors / tools instead of FTEs"; }
+        elif mgmt == "hold" { label = "Hold — skip the org move this cycle"; }
         lines.append(f"Management move: {label}.");
     }
     if launch {
@@ -402,10 +396,10 @@ def build_proposal(plan: str, answers: dict, modules: list) -> str {
     }
     if fin {
         label = fin;
-        if fin == "raise_soon" { label = "Start raising soon"; }
-        elif fin == "extend" { label = "Extend runway / cut burn first"; }
-        elif fin == "price_up" { label = "Raise prices / push MRR"; }
-        elif fin == "none" { label = "Hold cash posture this cycle"; }
+        if fin == "fund" or fin == "raise_soon" { label = "Fund the plan fully"; }
+        elif fin == "tight" or fin == "extend" { label = "Tight budget — minimum cash only"; }
+        elif fin == "price_up" { label = "Fund from pricing / MRR lift"; }
+        elif fin == "none" { label = "No new money posture — current cash only"; }
         lines.append(f"Finance move: {label}.");
     }
     if pub {
