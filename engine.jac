@@ -439,6 +439,21 @@ def arbiter(session: Session) {
     if alive_cards {
         best = alive_cards[0];
         best_id = best["branch_id"];
+        # If the surviving leaf is a non-killing Red probe, prefer its Blue parent for the memo
+        best_branch = branch_by_id(session, best_id);
+        if best_branch.get("side_created") == "red" {
+            parent = branch_by_id(session, str(best_branch.get("parent_id", "")));
+            killed_here = False;
+            for f in session.findings {
+                if f.get("branch_id") == best_id and f.get("kill") {
+                    killed_here = True;
+                }
+            }
+            if parent and parent.get("alive", True) and parent.get("side_created") == "blue" and not killed_here {
+                best_id = parent["id"];
+                best = {"branch_id": best_id, "label": parent.get("label", "")};
+            }
+        }
     } else {
         all_cards = list(session.scorecards);
         all_cards.sort(key=lambda (s: dict) -> float { return s["rank_score"]; }, reverse=True);
