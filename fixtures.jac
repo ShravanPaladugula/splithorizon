@@ -46,8 +46,9 @@ def seed_company_state(overrides: dict = {}) -> dict {
     for k in overrides.keys() {
         c[k] = overrides[k];
     }
-    if overrides {
-        c["name"] = str(overrides.get("name", c.get("name", "Your company")));
+    if overrides and not str(overrides.get("name", "")).strip() {
+        # Someone else's numbers must never keep the demo company's name.
+        c["name"] = "Your company";
     }
     return c;
 }

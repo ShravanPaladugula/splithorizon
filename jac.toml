@@ -8,4 +8,4 @@ description = "SplitHorizon — adversarial decision simulator for startup found
 runtime = ["llm"]
 
 [byllm.model]
-default_model = "gemini/gemini-flash-lite-latest"
+default_model = "groq/llama-3.3-70b-versatile"

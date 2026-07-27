@@ -1150,6 +1150,26 @@ body {
 .lg.dead::before { background: var(--dead); }
 .lg.pick::before { background: var(--gold); }
 
+/* Inline reference to a node in the tree — click jumps to it and pulses it. */
+.branch-ref {
+  font: inherit;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.86em;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, transparent);
+  border-radius: 5px;
+  padding: 0 0.32em;
+  margin: 0 0.06em;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.branch-ref:hover,
+.branch-ref:focus-visible {
+  background: color-mix(in srgb, var(--gold) 26%, transparent);
+  transform: translateY(-1px);
+}
+
 .branch-outline {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

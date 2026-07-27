@@ -162,63 +162,16 @@ def normalize_areas(raw: list) -> list {
     return out;
 }
 
-def classify_modules_keywords(plan: str) -> list {
-    t = _lower(plan);
-    mods: list = [];
-    management_kw = ["hire", "hiring", "engineer", "eng ", "headcount", "contractor", "recruit", "team", "fire", "layoff", "infra", "infrastructure", "office", "relocat"];
-    launch_kw = ["launch", "ship", "release", "go-live", "golive", "product", "mvp", "beta"];
-    publicity_kw = ["ad ", "ads", "advertis", "influencer", "campaign", "marketing", "publicity", "pr ", "brand", "gtm", "content", "seo", "viral"];
-    # Equipment buys are finance/capex — even if the UI desk was set to management.
-    finance_kw = ["runway", "raise", "burn", "cash", "fundrais", "dilution", "bridge", "spend", "cost", "price", "pricing", "mrr", "revenue", "invest", "budget", "buy", "purchase", "printer", "equipment", "capex", "machine"];
-    for k in management_kw {
-        if k in t {
-            if "management" not in mods { mods.append("management"); }
-            break;
-        }
-    }
-    for k in launch_kw {
-        if k in t {
-            if "launch" not in mods { mods.append("launch"); }
-            break;
-        }
-    }
-    for k in publicity_kw {
-        if k in t {
-            if "publicity" not in mods { mods.append("publicity"); }
-            break;
-        }
-    }
-    for k in finance_kw {
-        if k in t {
-            if "finance" not in mods { mods.append("finance"); }
-            break;
-        }
-    }
-    if not mods {
-        mods = ["finance"];
-    }
-    return mods;
-}
-
 def classify_modules(plan: str) -> dict {
-    restated = "";
+    # Desks come from the model reading the plan — no keyword table.
     cls = classify_plan(plan);
     mods = normalize_areas(cls.modules);
-    if mods {
-        restated = cls.restated;
-    } else {
-        mods = classify_modules_keywords(plan);
-    }
-    return {"modules": mods, "restated": restated};
+    if not mods { mods = ["finance"]; }
+    return {"modules": mods, "restated": cls.restated};
 }
 
-glob DEMO_PLAN_KW: list = ["two engineer", "2 engineer", "october launch"];
-
 def pick_fixture(modules: list, plan: str) -> str {
-    t = _lower(plan);
-    for k in DEMO_PLAN_KW {
-        if k in t { return "interlock"; }
-    }
+    # Every plan is simulated live now; fixtures no longer shortcut the run.
     return "custom";
 }
 
@@ -283,22 +236,6 @@ def next_intake_questions(plan: str, answers: dict, modules_hint: list = []) -> 
                     "field": field,
                     "type": "number" if str(q.qtype) == "number" else "text"
                 });
-            }
-        }
-        if not extra_questions {
-            # Never fall back to generic cash/burn — reuse plan-adaptive follow-ups.
-            fb = fallback_intake_followups(plan);
-            for q in fb.questions {
-                field = f"extra_{q.id}";
-                if not _answered(answers, field) {
-                    extra_questions.append({
-                        "id": field,
-                        "prompt": str(q.prompt),
-                        "placeholder": str(q.placeholder),
-                        "field": field,
-                        "type": "number" if str(q.qtype) == "number" else "text"
-                    });
-                }
             }
         }
     }

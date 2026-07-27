@@ -1,19 +1,40 @@
-# Typed drafts — LLM proposes claims/moves NEVER figures.
+# Agents — every one of these is a live LLM call. No canned moves, no template prose.
+#
+# Division of labour that makes the product honest:
+#   the model reads the founder's actual plan and proposes WHAT to do and HOW BIG;
+#   verifiers.jac owns every date and every dollar that lands in a score.
+# If the model is unreachable we raise. We never substitute invented content —
+# fabricated advice that looks real is worse than an error.
+
+import from jaclang.byllm.lib { Model }
 
 import json;
 import os;
 import time;
 
-glob LLM_RETRY_SLEEP: float = 1.0;
+# Two tiers, because Groq's free tier bills a per-model token/day budget:
+#   llm      - high volume (a dozen Blue/Red drafts per run), small structured outputs
+#   llm_lead - one call per run, writes the answer the founder actually reads
+# Each Groq model carries its own tokens/day budget, so splitting the work also
+# doubles the daily headroom. llama-3.1-8b is deliberately NOT used: it cannot hold
+# a strict JSON schema, which is the whole contract here.
+glob LLM_MODEL: str = os.environ.get("SPLITHORIZON_MODEL", "groq/openai/gpt-oss-20b");
+glob LLM_LEAD_MODEL: str = os.environ.get("SPLITHORIZON_LEAD_MODEL", "groq/openai/gpt-oss-120b");
+glob llm = Model(model_name=LLM_MODEL);
+glob llm_lead = Model(model_name=LLM_LEAD_MODEL);
+
+glob LLM_ATTEMPTS: int = 3;
+glob LLM_BACKOFF: float = 1.5;
+
+# ---------------------------------------------------------------- typed drafts
 
 obj MoveDraft {
-    has move: str = "noop";
-    has claim: str = "";
-    has effect_tag: str = "noop";
-    has module: str = "hire";
     has label: str = "";
+    has claim: str = "";
+    has desk: str = "finance";
     has burn_delta_pct: float = 0.0;
     has mrr_delta_pct: float = 0.0;
+    has cash_spend_usd: float = 0.0;
     has headcount_delta: int = 0;
     has milestone_shift_days: int = 0;
 }
@@ -21,8 +42,6 @@ obj MoveDraft {
 obj AttackDraft {
     has claim: str = "";
     has severity: str = "high";
-    has check_hint: str = "alive_at_milestone";
-    has stress_tag: str = "burn_spike";
     has burn_delta_pct: float = 0.0;
     has mrr_delta_pct: float = 0.0;
     has milestone_shift_days: int = 0;
@@ -44,193 +63,155 @@ obj IntakeQSet {
     has questions: list[IntakeQ] = [];
 }
 
-obj MemoProse {
-    has title: str;
-    has recommended_reason: str;
-    has kill_shots: str;
-    has open_risks: str;
-    has dissent: str;
-    has date_line: str = "";
+obj PlanStep {
+    has when: str = "";
+    has title: str = "";
+    has detail: str = "";
 }
 
-sem blue_propose_llm = "You are Blue for THIS founder's plan only. Propose ONE concrete move that directly serves THAT plan — never a stock 'hire two engineers' or 'start a raise' unless the plan literally says that. If they said hire 10, propose variants around THAT count (full / half / contractors / hold). Output: label (<=6 words, imperative, specific), claim (why it wins on survival), module (finance|management|launch|publicity), effect_tag='custom', and bounded effects: burn_delta_pct (-40..80), mrr_delta_pct (-50..60), headcount_delta (-3..5), milestone_shift_days (-45..90). Effects must match the move. Avoid repeating moves already in the branch summary.";
-def blue_propose_llm(branch_summary: str, question: str, prior_attacks: str) -> MoveDraft by llm(temperature=0.3);
-
-sem red_attack_llm = "You are Red. Attack the CURRENT move with a failure mode specific to THIS plan's metrics (ramp/productivity for hiring, CAC for ads, utilization for equipment, ship blockers for launch — not a generic fundraising rant). Output claim, severity (low|medium|high), check_hint='alive_at_milestone', stress_tag='custom', burn_delta_pct (0..30), mrr_delta_pct (-40..0), milestone_shift_days (0..45).";
-def red_attack_llm(branch_summary: str, move: str) -> AttackDraft by llm(temperature=0.4);
-
-sem classify_plan_llm = "Classify a startup founder's stated plan into consult desks from exactly {finance, management, launch, publicity}. Pick 1-3: finance = raise/burn/cash/pricing/MRR/runway; management = hiring/headcount/contractors/infra/org; launch = shipping/releasing/go-live/product milestone; publicity = ads/campaigns/influencers/marketing/GTM buzz. Most plans that cost money should include finance. restated = one sentence restating the plan as an A-vs-B decision.";
-def classify_plan_llm(plan: str) -> PlanClass by llm(temperature=0.1);
-
-sem intake_followups_llm = "You are intake for a startup survival simulator. Given the founder's plan and what is already known, write up to 3 SHORT follow-up questions that measure WHETHER THIS SPECIFIC PLAN works — adaptive metrics (e.g. hire plan → loaded cost + ramp + what slips if you hold; ads → spend + CAC + payback weeks; launch → blockers + ship risk; product bet → activation/retention signal). NEVER ask generic 'how much cash in 90 days' or 'what does burn do' unless the plan is literally about fundraising. Never re-ask known facts. Each: id = snake_case key, prompt = one plain-English sentence, qtype = 'number' or 'text', placeholder = short example.";
-def intake_followups_llm(plan: str, known: str) -> IntakeQSet by llm(temperature=0.2);
-
-sem arbiter_narrate_llm = "Memo punchline is a DATE comparison. No confidence percentages.";
-def arbiter_narrate_llm(scorecards: str, findings: str) -> MemoProse by llm(temperature=0.2);
-
-sem baseline_plan_llm = "One-shot confident advice with no red-team — the chatbot foil.";
-def baseline_plan_llm(text: str) -> str by llm(temperature=0.5);
-
-obj PlanNarration {
+obj DecisionAnswer {
+    has headline: str = "";
+    has because: str = "";
+    has dont: str = "";
     has analysis: str = "";
     has watch_for: str = "";
+    has title: str = "";
+    has steps: list[PlanStep] = [];
 }
 
-sem plan_narrate_llm = "Write a decision analysis for a startup founder. analysis: 3-5 sentences on WHY the recommended plan wins on survival dates, referencing the given dates/steps only — NEVER invent numbers. watch_for: 1-2 sentences on the earliest signal the plan is going wrong.";
-def plan_narrate_llm(memo_summary: str, plan_steps: str) -> PlanNarration by llm(temperature=0.3);
+# ------------------------------------------------------------------- the agents
 
-glob CACHE_DIR: str = "cache";
+sem blue_propose_llm = """
+BLUE argues FOR a way of running the founder's OWN plan. Propose ONE variation of THAT plan —
+full scope, partial, cheaper substitute, staged, or don't do it. 'Hire 10 engineers' means
+options around THAT hire, never 'start a raise'. Must differ materially from already_tried
+(different scope or mechanism, not a reworded twin).
+label: imperative, <=6 words, names the action. claim: one sentence, why it survives the
+cash-out race. desk: finance|management|launch|publicity.
+burn_delta_pct -40..80 (monthly burn). mrr_delta_pct -50..60. cash_spend_usd: one-time cash,
+0 if none, derived from the founder's own figures, never above cash. headcount_delta -3..5,
+non-zero ONLY for hiring/firing. milestone_shift_days -45..90, negative = sooner.
+Effects must match the move: holding spend cannot raise burn; a hire raises burn and headcount.
+""";
+def blue_propose_llm(plan: str, company: str, desk: str, already_tried: str, round_no: int) -> MoveDraft by llm(temperature=0.55);
 
-def _cache_path(fixture_id: str) -> str {
-    return f"{CACHE_DIR}/{fixture_id}.json";
-}
+sem red_attack_llm = """
+RED attacks the exact move Blue just made. Name the concrete failure mode for THIS move —
+ramp/backfill for hires, CAC and payback for ads, utilization for equipment, blockers for
+launches, churn for pricing. Never a generic 'raise money' or 'market is competitive' rant.
+claim: one sentence, the failure and how it shows in the numbers. severity: low|medium|high.
+burn_delta_pct 0..30, mrr_delta_pct -40..0, milestone_shift_days 0..45.
+Proportionate magnitude: a plausible bad quarter, not the apocalypse.
+""";
+def red_attack_llm(plan: str, company: str, move_label: str, move_claim: str, desk: str) -> AttackDraft by llm(temperature=0.7);
 
-def load_fixture_cache(fixture_id: str) -> dict {
-    path = _cache_path(fixture_id);
-    if not os.path.exists(path) {
-        return {};
+sem classify_plan_llm = """
+Classify a founder's stated plan into consult desks from exactly {finance, management, launch, publicity}.
+  finance    = raise, burn, cash, pricing, MRR, runway, any purchase or capex
+  management = hiring, headcount, contractors, org, infrastructure
+  launch     = shipping, releasing, go-live, a product milestone
+  publicity  = ads, campaigns, influencers, marketing, GTM
+Pick 1-3, most relevant first. Anything that costs real money should include finance.
+restated = one sentence recasting the plan as an A-vs-B decision.
+""";
+def classify_plan_llm(plan: str) -> PlanClass by llm(temperature=0.1);
+
+sem intake_followups_llm = """
+You are intake for a startup survival simulator. The sim already knows cash, burn, MRR,
+headcount, and the milestone date — NEVER ask for those again, and never ask a generic
+'how much runway do you have' question.
+
+Given PLAN and KNOWN, write up to 3 short questions that pin down the numbers THIS SPECIFIC
+plan turns on — the ones that decide whether it works:
+  a hire      -> fully loaded monthly cost, months to productive, what slips if you hold
+  paid ads    -> spend, target CAC, weeks to payback
+  equipment   -> purchase price, expected utilization, what capacity it unlocks
+  a launch    -> one-time GTM cash, the blocker most likely to slip the date
+  pricing     -> percent change, customers touched, churn you would roll back at
+Each: id = snake_case key, prompt = one plain sentence, qtype = 'number' or 'text',
+placeholder = a short concrete example.
+""";
+def intake_followups_llm(plan: str, known: str) -> IntakeQSet by llm(temperature=0.3);
+
+sem decide_llm = """
+ARBITER writes the founder's answer. FACTS is verified deterministic arithmetic — surviving
+branches, killed ones with kill reasons, cash-out dates, milestone dates, margins.
+RULES: use ONLY figures present in FACTS. Do NOT do arithmetic of your own — every margin is
+already given, quote it. No confidence percentages. Speak to the founder's actual decision in
+their own vocabulary.
+title: <=8 words, the verdict. headline: starts YES / NO / PARTIAL / NOT YET followed by an
+em dash and a complete instruction naming what to do instead — e.g. "NO — hire one rep now,
+not three." Never restate the rejected plan as if recommending it.
+because: 1-2 sentences citing cash-out vs milestone date and the given margin.
+dont: the alternative that died and the number that killed it, '' if none died.
+analysis: 3-5 sentences — what Blue tried, what Red broke, why this line survived and the
+others did not; cite branch ids exactly as in FACTS. watch_for: 1-2 sentences, the earliest
+observable signal this is going wrong. steps: 3-6 actions, 'when' = a real date from FACTS or
+This week/Day 30/Weekly, 'title' imperative and plan-specific, 'detail' says what to do and
+which number to watch; one step must name the kill condition.
+""";
+def decide_llm(decision: str, company: str, facts: str) -> DecisionAnswer by llm_lead(temperature=0.35);
+
+sem baseline_plan_llm = """
+You are a confident generic startup chatbot with no red team, no arithmetic, and no access to
+the company's cash position. Answer the founder's plan in 2-3 breezy, self-assured sentences.
+Give a clear recommendation. Do NOT mention runway, cash-out dates, or any risk analysis —
+this is the foil that shows what advice without arithmetic sounds like.
+""";
+def baseline_plan_llm(plan: str) -> str by llm(temperature=0.8);
+
+# ------------------------------------------------------------------ call plumbing
+
+def _describe_company(company: dict) -> str {
+    if not company { return "no company figures supplied"; }
+    bits: list = [];
+    if company.get("name") { bits.append(str(company["name"])); }
+    if company.get("describe") { bits.append(str(company["describe"])[:180]); }
+    bits.append(f"cash ${float(company.get('cash', 0.0)):,.0f}");
+    bits.append(f"burn ${float(company.get('monthly_burn', 0.0)):,.0f}/mo");
+    bits.append(f"MRR ${float(company.get('mrr', 0.0)):,.0f}/mo");
+    bits.append(f"headcount {int(company.get('headcount', 0))}");
+    if company.get("milestone") {
+        bits.append(f"milestone {company['milestone']} on {company.get('milestone_date', '?')}");
     }
-    with open(path, "r") as f {
-        return json.load(f);
+    if company.get("plan_cash") {
+        bits.append(f"founder says this plan costs ~${float(company['plan_cash']):,.0f} one-time");
+    }
+    if company.get("plan_burn_delta") {
+        bits.append(f"founder says it adds ~${float(company['plan_burn_delta']):,.0f}/mo");
+    }
+    return " · ".join(bits);
+}
+
+def _rate_limit_wait(err: str) -> float {
+    # Groq answers 429 with "Please try again in 6.432s" — obey it instead of guessing.
+    import re;
+    low = str(err).lower();
+    if ("rate limit" not in low) and ("ratelimit" not in low) and ("429" not in low) {
+        return 0.0;
+    }
+    m = re.search(r"try again in ([0-9.]+)s", low);
+    if m {
+        return min(float(m.group(1)) + 1.0, 65.0);
+    }
+    m2 = re.search(r"try again in ([0-9.]+)m([0-9.]+)s", low);
+    if m2 {
+        return min(float(m2.group(1)) * 60.0 + float(m2.group(2)) + 1.0, 65.0);
+    }
+    return 20.0;
+}
+
+def _note_failure(label: str, attempt: int, err: str) {
+    pause = _rate_limit_wait(err);
+    kind = f"rate-limited, waiting {pause:.0f}s" if pause > 0.0 else "failed";
+    print(f"[SplitHorizon] {label} attempt {attempt}/{LLM_ATTEMPTS} {kind}: {err[:160]}");
+    if attempt < LLM_ATTEMPTS {
+        time.sleep(pause if pause > 0.0 else LLM_BACKOFF * float(attempt));
     }
 }
 
-def prefer_cache() -> bool {
-    # Offline drafts unless explicitly live. Missing litellm / Gemini quota
-    # must never block the war room.
-    return os.environ.get("SPLITHORIZON_LIVE", "") != "1";
-}
-
-def llm_enabled() -> bool {
-    if prefer_cache() {
-        return False;
-    }
-    try {
-        import litellm;
-        return True;
-    } except Exception {
-        return False;
-    }
-}
-
-def move_from_dict(d: dict) -> MoveDraft {
-    return MoveDraft(
-        move=str(d.get("move", d.get("effect_tag", "noop"))),
-        claim=str(d.get("claim", "")),
-        effect_tag=str(d.get("effect_tag", d.get("move", "noop"))),
-        module=str(d.get("module", "hire")),
-        label=str(d.get("label", "")),
-        burn_delta_pct=float(d.get("burn_delta_pct", 0.0)),
-        mrr_delta_pct=float(d.get("mrr_delta_pct", 0.0)),
-        headcount_delta=int(d.get("headcount_delta", 0)),
-        milestone_shift_days=int(d.get("milestone_shift_days", 0))
-    );
-}
-
-def classify_plan(plan: str) -> PlanClass {
-    if not llm_enabled() {
-        return PlanClass(modules=[], restated="");
-    }
-    try {
-        return classify_plan_llm(plan);
-    } except Exception as e {
-        print(f"[SplitHorizon] classify_plan fallback: {e}");
-        return PlanClass(modules=[], restated="");
-    }
-}
-
-def fallback_intake_followups(plan: str) -> IntakeQSet {
-    # Offline / rate-limit path — still force plan-specific questions so intake
-    # never collapses to "shape choice → war room".
-    t = str(plan).lower();
-    qs: list = [];
-    if ("ad" in t) or ("ads" in t) or ("advertis" in t) or ("instagram" in t) or ("tiktok" in t) or ("influencer" in t) or ("campaign" in t) {
-        qs = [
-            IntakeQ(id="spend_usd", prompt="How much cash will you put into this campaign in the first 30 days (USD)?", qtype="number", placeholder="e.g. 30000"),
-            IntakeQ(id="channel", prompt="Which channel carries most of that spend?", qtype="text", placeholder="e.g. Instagram / Google / influencers"),
-            IntakeQ(id="payback_weeks", prompt="In how many weeks do you need paid acquisition to pay back, or you kill it?", qtype="number", placeholder="e.g. 8")
-        ];
-    } elif ("hire" in t) or ("hiring" in t) or ("engineer" in t) or ("contractor" in t) or ("headcount" in t) or ("recruit" in t) {
-        qs = [
-            IntakeQ(id="loaded_cost", prompt="Fully loaded monthly cost of the hire(s) you're tempted to make (USD / month)?", qtype="number", placeholder="e.g. 28000"),
-            IntakeQ(id="ramp_months", prompt="How many months until that hire is productive?", qtype="number", placeholder="e.g. 3"),
-            IntakeQ(id="slip_if_hold", prompt="What slips on the milestone if you hold hiring instead?", qtype="text", placeholder="e.g. mobile app slips 6 weeks")
-        ];
-    } elif ("raise" in t) or ("fundrais" in t) or ("bridge" in t) or ("dilution" in t) or ("series" in t) {
-        qs = [
-            IntakeQ(id="raise_target", prompt="How much are you trying to raise (USD)?", qtype="number", placeholder="e.g. 1500000"),
-            IntakeQ(id="close_months", prompt="Months until you expect a term sheet (0 if already circling)?", qtype="number", placeholder="e.g. 4"),
-            IntakeQ(id="runway_need", prompt="How many months of runway do you need after close?", qtype="number", placeholder="e.g. 18")
-        ];
-    } elif ("office" in t) or ("relocat" in t) or ("lease" in t) or ("rent" in t) {
-        qs = [
-            IntakeQ(id="move_cost", prompt="One-time move / buildout cost (USD)?", qtype="number", placeholder="e.g. 80000"),
-            IntakeQ(id="rent_delta", prompt="Monthly rent delta vs today (USD / month)?", qtype="number", placeholder="e.g. 12000"),
-            IntakeQ(id="move_date", prompt="When would you actually move?", qtype="text", placeholder="e.g. 2026-09-01")
-        ];
-    } elif ("price" in t) or ("pricing" in t) or ("discount" in t) or ("packag" in t) {
-        qs = [
-            IntakeQ(id="price_change_pct", prompt="What % price change are you considering (negative = cut)?", qtype="number", placeholder="e.g. 20"),
-            IntakeQ(id="customers_touched", prompt="How many current customers does this touch?", qtype="number", placeholder="e.g. 40"),
-            IntakeQ(id="churn_fear_pct", prompt="What churn % would make you roll it back?", qtype="number", placeholder="e.g. 8")
-        ];
-    } elif ("launch" in t) or ("ship" in t) or ("release" in t) or ("go-live" in t) or ("golive" in t) {
-        qs = [
-            IntakeQ(id="launch_cash", prompt="One-time launch / GTM cash outlay (USD)?", qtype="number", placeholder="e.g. 25000"),
-            IntakeQ(id="launch_burn_bump", prompt="Extra monthly burn around launch (USD / month)?", qtype="number", placeholder="e.g. 8000"),
-            IntakeQ(id="launch_risk", prompt="What is the single biggest thing that can slip the date?", qtype="text", placeholder="e.g. SOC2 / App Store review")
-        ];
-    } else {
-        qs = [
-            IntakeQ(id="leading_metric", prompt="What single leading metric proves this plan is working?", qtype="text", placeholder="e.g. weekly active creators / activation rate"),
-            IntakeQ(id="weeks_to_signal", prompt="In how many weeks must that metric move, or you stop?", qtype="number", placeholder="e.g. 6"),
-            IntakeQ(id="kill_criteria", prompt="What result would make you kill this plan immediately?", qtype="text", placeholder="e.g. metric flat for 3 weeks")
-        ];
-    }
-    return IntakeQSet(questions=qs);
-}
-
-def intake_followups(plan: str, known: str) -> IntakeQSet {
-    if not llm_enabled() {
-        return fallback_intake_followups(plan);
-    }
-    try {
-        qset = intake_followups_llm(plan, known);
-        if not qset.questions {
-            return fallback_intake_followups(plan);
-        }
-        return qset;
-    } except Exception as e {
-        print(f"[SplitHorizon] intake_followups fallback: {e}");
-        return fallback_intake_followups(plan);
-    }
-}
-
-def attack_from_dict(d: dict) -> AttackDraft {
-    return AttackDraft(
-        claim=str(d.get("claim", "")),
-        severity=str(d.get("severity", "medium")),
-        check_hint=str(d.get("check_hint", "runway")),
-        stress_tag=str(d.get("stress_tag", "generic")),
-        burn_delta_pct=float(d.get("burn_delta_pct", 0.0)),
-        mrr_delta_pct=float(d.get("mrr_delta_pct", 0.0)),
-        milestone_shift_days=int(d.get("milestone_shift_days", 0))
-    );
-}
-
-def memo_from_dict(d: dict) -> MemoProse {
-    return MemoProse(
-        title=str(d.get("title", "Decision Memo")),
-        recommended_reason=str(d.get("recommended_reason", "")),
-        kill_shots=str(d.get("kill_shots", "")),
-        open_risks=str(d.get("open_risks", "")),
-        dissent=str(d.get("dissent", "")),
-        date_line=str(d.get("date_line", ""))
-    );
-}
-
-def _q_lower(s: str) -> str {
-    return str(s).lower();
+def _give_up(label: str, err: str) -> str {
+    return f"{label} failed after {LLM_ATTEMPTS} attempts: {err[:300]}";
 }
 
 def normalize_draft_areas(raw: list) -> list {
@@ -238,9 +219,10 @@ def normalize_draft_areas(raw: list) -> list {
     out: list = [];
     for m in raw {
         a = str(m).lower().strip();
-        if a in ["hire", "hiring"] { a = "management"; }
-        elif a in ["runway", "money"] { a = "finance"; }
-        elif a in ["marketing", "ads", "pr"] { a = "publicity"; }
+        if a in ["hire", "hiring", "ops", "org"] { a = "management"; }
+        elif a in ["runway", "money", "fundraising"] { a = "finance"; }
+        elif a in ["marketing", "ads", "pr", "growth"] { a = "publicity"; }
+        elif a in ["ship", "product", "release"] { a = "launch"; }
         if a in allowed and a not in out {
             out.append(a);
         }
@@ -248,268 +230,96 @@ def normalize_draft_areas(raw: list) -> list {
     return out;
 }
 
-def infer_areas_from_plan(question: str) -> list {
-    t = _q_lower(question);
-    mods: list = [];
-    if ("hire" in t) or ("engineer" in t) or ("headcount" in t) or ("contractor" in t) or ("infra" in t) or ("office" in t) or ("fire" in t) or ("layoff" in t) {
-        mods.append("management");
-    }
-    if ("launch" in t) or ("ship" in t) or ("release" in t) or ("go-live" in t) or ("golive" in t) or ("mvp" in t) {
-        mods.append("launch");
-    }
-    if ("ad" in t) or ("marketing" in t) or ("influencer" in t) or ("campaign" in t) or ("publicity" in t) or ("gtm" in t) {
-        mods.append("publicity");
-    }
-    if ("raise" in t) or ("fundrais" in t) or ("burn" in t) or ("runway" in t) or ("price" in t) or ("mrr" in t) or ("cash" in t) or ("spend" in t) or ("buy" in t) or ("purchase" in t) or ("printer" in t) or ("equipment" in t) or ("capex" in t) or ("machine" in t) {
-        mods.append("finance");
-    }
-    if not mods {
-        mods = ["finance"];
-    }
-    return mods;
-}
-
-def pick_area(areas: list, question: str, round_no: int, variety: int = 0) -> str {
-    cleaned = normalize_draft_areas(areas) if areas else [];
-    if not cleaned {
-        cleaned = infer_areas_from_plan(question);
-    }
-    idx = (round_no - 1 + variety) % len(cleaned);
-    return cleaned[idx];
-}
-
-def is_equipment_plan(question: str) -> bool {
-    t = _q_lower(question);
-    return ("buy" in t) or ("purchase" in t) or ("printer" in t) or ("equipment" in t) or ("machine" in t) or ("capex" in t) or ("gear" in t) or ("hardware" in t) or ("tooling" in t);
-}
-
-def parse_hire_count(question: str) -> int {
-    # Pull an explicit headcount from the plan ("hire 10 engineers") — default 2.
-    import re;
-    t = str(question).lower();
-    m = re.search(r"(?:hire|hiring|add|recruit)\s+(\d{1,3})", t);
-    if m {
-        n = int(m.group(1));
-        if n < 1 { return 1; }
-        if n > 50 { return 50; }
-        return n;
-    }
-    m2 = re.search(r"(\d{1,3})\s+(?:product\s+)?(?:engineers?|devs?|designers?|people|hires?|seats?)", t);
-    if m2 {
-        n = int(m2.group(1));
-        if n < 1 { return 1; }
-        if n > 50 { return 50; }
-        return n;
-    }
-    return 2;
-}
-
-def hire_burn_pct_for(n: int) -> float {
-    # Rough fully-loaded burn shock as % of current burn — capped.
-    pct = float(n) * 12.0;
-    if pct < 8.0 { return 8.0; }
-    if pct > 80.0 { return 80.0; }
-    return pct;
-}
-
-def is_hire_plan(question: str) -> bool {
-    t = _q_lower(question);
-    return ("hire" in t) or ("hiring" in t) or ("engineer" in t) or ("headcount" in t) or ("contractor" in t) or ("recruit" in t) or ("staff" in t);
-}
-
-def area_blue_fallback(area: str, question: str, round_no: int) -> MoveDraft {
-    # Desk-specialized Blue agents — moves adapt to the stated plan.
-    a = str(area);
-    opts: list = [];
-    if is_equipment_plan(question) {
-        opts = [
-            MoveDraft(move="custom", claim="Buy the full equipment set now to unlock capacity before the milestone", effect_tag="custom", module="finance", label="Buy both now", burn_delta_pct=8.0, mrr_delta_pct=18.0, headcount_delta=0, milestone_shift_days=-7),
-            MoveDraft(move="custom", claim="Buy one unit first; prove utilization before the second purchase", effect_tag="custom", module="finance", label="Buy one first", burn_delta_pct=4.0, mrr_delta_pct=9.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Lease / finance the gear to protect cash while adding capacity", effect_tag="custom", module="finance", label="Lease instead of buy", burn_delta_pct=12.0, mrr_delta_pct=12.0, headcount_delta=0, milestone_shift_days=-3),
-            MoveDraft(move="custom", claim="Do not buy — max out current capacity and delay capex", effect_tag="custom", module="finance", label="Do not buy — wait", burn_delta_pct=-5.0, mrr_delta_pct=2.0, headcount_delta=0, milestone_shift_days=14)
-        ];
-        idx = (round_no - 1) % len(opts);
-        return opts[idx];
-    }
-    if is_hire_plan(question) or a == "management" {
-        tq = str(question).lower();
-        if ("fire" in tq) or ("layoff" in tq) or ("let go" in tq) or ("cut headcount" in tq) or ("reduce staff" in tq) {
-            opts = [
-                MoveDraft(move="custom", claim="Cut two seats now to protect cash-out past the milestone", effect_tag="custom", module="management", label="Fire two employees", burn_delta_pct=-35.0, mrr_delta_pct=0.0, headcount_delta=-2, milestone_shift_days=7),
-                MoveDraft(move="custom", claim="Cut one seat and freeze backfills — smaller cut, less delivery risk", effect_tag="custom", module="management", label="Fire one + freeze", burn_delta_pct=-18.0, mrr_delta_pct=0.0, headcount_delta=-1, milestone_shift_days=3),
-                MoveDraft(move="custom", claim="Do not fire; re-scope the milestone instead", effect_tag="custom", module="management", label="No layoff — re-scope", burn_delta_pct=0.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=14)
-            ];
-        } else {
-            n = parse_hire_count(question);
-            half = n // 2 if n > 1 else 1;
-            if half < 1 { half = 1; }
-            full_pct = hire_burn_pct_for(n);
-            half_pct = hire_burn_pct_for(half);
-            hc_full = n if n <= 5 else 5;
-            hc_half = half if half <= 5 else 3;
-            opts = [
-                MoveDraft(move="custom", claim=f"Hire all {n} seats now so the milestone still has capacity", effect_tag="custom", module="management", label=f"Hire all {n}", burn_delta_pct=full_pct, mrr_delta_pct=4.0, headcount_delta=hc_full, milestone_shift_days=-7),
-                MoveDraft(move="custom", claim=f"Hire {half} first; prove ramp before opening the rest of the {n}", effect_tag="custom", module="management", label=f"Hire {half} first", burn_delta_pct=half_pct, mrr_delta_pct=2.0, headcount_delta=hc_half, milestone_shift_days=0),
-                MoveDraft(move="custom", claim="Use contractors / tools instead of full-time seats this cycle", effect_tag="custom", module="management", label="Contractors instead", burn_delta_pct=half_pct * 0.7, mrr_delta_pct=1.0, headcount_delta=0, milestone_shift_days=3),
-                MoveDraft(move="custom", claim="Hold hiring and re-scope the milestone without new seats", effect_tag="custom", module="management", label="Hold — no new seats", burn_delta_pct=-5.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=21)
-            ];
+def blue_propose(plan: str, company: dict, desk: str, already_tried: list, round_no: int) -> MoveDraft {
+    tried = "; ".join([str(t) for t in already_tried]) if already_tried else "nothing yet — this is the first move";
+    summary = _describe_company(company);
+    label = f"Blue({desk} r{round_no})";
+    attempt = 0;
+    last = "";
+    while attempt < LLM_ATTEMPTS {
+        attempt += 1;
+        try {
+            return blue_propose_llm(plan, summary, desk, tried, round_no);
+        } except Exception as e {
+            last = str(e);
+            _note_failure(label, attempt, last);
         }
-        idx = (round_no - 1) % len(opts);
-        return opts[idx];
     }
-    if a == "finance" {
-        opts = [
-            MoveDraft(move="custom", claim="Fund the plan from a raise so cash-out stays past the milestone", effect_tag="custom", module="finance", label="Fund via raise", burn_delta_pct=5.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=7),
-            MoveDraft(move="custom", claim="Run a tight budget — only the minimum cash the plan needs", effect_tag="custom", module="finance", label="Tight budget only", burn_delta_pct=-12.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=5),
-            MoveDraft(move="custom", claim="Fund the plan from pricing / MRR lift instead of new spend", effect_tag="custom", module="finance", label="Fund from pricing", burn_delta_pct=0.0, mrr_delta_pct=22.0, headcount_delta=0, milestone_shift_days=0)
-        ];
-    } elif a == "launch" {
-        opts = [
-            MoveDraft(move="custom", claim="Ship the full public launch on the milestone date", effect_tag="custom", module="launch", label="Full ship", burn_delta_pct=15.0, mrr_delta_pct=10.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Soft-launch to a limited cohort first to de-risk", effect_tag="custom", module="launch", label="Staged soft launch", burn_delta_pct=8.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=10),
-            MoveDraft(move="custom", claim="Slip the ship date to protect cash-out if blockers remain", effect_tag="custom", module="launch", label="Slip the date", burn_delta_pct=0.0, mrr_delta_pct=0.0, headcount_delta=0, milestone_shift_days=21)
-        ];
-    } else {
-        # publicity
-        opts = [
-            MoveDraft(move="custom", claim="Commit paid acquisition to hit signup goals before the milestone", effect_tag="custom", module="publicity", label="Full paid push", burn_delta_pct=40.0, mrr_delta_pct=14.0, headcount_delta=0, milestone_shift_days=0),
-            MoveDraft(move="custom", claim="Pilot a smaller campaign first to validate CAC before scaling", effect_tag="custom", module="publicity", label="Pilot campaign", burn_delta_pct=16.0, mrr_delta_pct=5.0, headcount_delta=0, milestone_shift_days=7),
-            MoveDraft(move="custom", claim="Shift to organic/creator channels to protect runway", effect_tag="custom", module="publicity", label="Organic / creators", burn_delta_pct=-6.0, mrr_delta_pct=4.0, headcount_delta=0, milestone_shift_days=14)
-        ];
-    }
-    idx = (round_no - 1) % len(opts);
-    return opts[idx];
+    raise RuntimeError(_give_up(label, last));
 }
 
-def area_red_fallback(area: str, question: str, move: str, round_no: int) -> AttackDraft {
-    a = str(area);
-    t = _q_lower(question + " " + move);
-    if is_equipment_plan(t) {
-        return AttackDraft(claim="Equipment Red: utilization misses — gear sits idle while payments pull cash-out forward", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=15.0, mrr_delta_pct=-12.0, milestone_shift_days=14);
+def red_attack(plan: str, company: dict, move_label: str, move_claim: str, desk: str) -> AttackDraft {
+    summary = _describe_company(company);
+    label = f"Red({desk})";
+    attempt = 0;
+    last = "";
+    while attempt < LLM_ATTEMPTS {
+        attempt += 1;
+        try {
+            return red_attack_llm(plan, summary, move_label, move_claim, desk);
+        } except Exception as e {
+            last = str(e);
+            _note_failure(label, attempt, last);
+        }
     }
-    if is_hire_plan(t) or a == "management" {
-        return AttackDraft(claim="Management Red: ramp misses — new seats cost for months before productivity moves the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=12.0, mrr_delta_pct=-4.0, milestone_shift_days=21);
-    }
-    if ("ad" in t) or ("campaign" in t) or ("cac" in t) or a == "publicity" {
-        return AttackDraft(claim="Publicity Red: CAC spikes and conversion misses — spend burns before MRR lands", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=12.0, mrr_delta_pct=-20.0, milestone_shift_days=14);
-    }
-    if ("launch" in t) or ("ship" in t) or a == "launch" {
-        return AttackDraft(claim="Launch Red: ship blockers slip the date while burn keeps running", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=6.0, mrr_delta_pct=-8.0, milestone_shift_days=21);
-    }
-    if a == "finance" {
-        return AttackDraft(claim="Finance Red: funding or pricing lift lands late — cash-out crosses ahead of the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=8.0, mrr_delta_pct=-12.0, milestone_shift_days=14);
-    }
-    return AttackDraft(claim="Red: the plan's leading metric misses while cost still lands — cash-out moves earlier than the milestone", severity="high", check_hint="alive_at_milestone", stress_tag="custom", burn_delta_pct=10.0, mrr_delta_pct=-10.0, milestone_shift_days=14);
+    raise RuntimeError(_give_up(label, last));
 }
 
-def scenario_blue_fallback(question: str, round_no: int) -> MoveDraft {
-    area = pick_area([], question, round_no, 0);
-    return area_blue_fallback(area, question, round_no);
+def classify_plan(plan: str) -> PlanClass {
+    attempt = 0;
+    last = "";
+    while attempt < LLM_ATTEMPTS {
+        attempt += 1;
+        try {
+            cls = classify_plan_llm(plan);
+            mods = normalize_draft_areas(cls.modules);
+            if not mods { mods = ["finance"]; }
+            return PlanClass(modules=mods, restated=cls.restated);
+        } except Exception as e {
+            last = str(e);
+            _note_failure("classify_plan", attempt, last);
+        }
+    }
+    raise RuntimeError(_give_up("classify_plan", last));
 }
 
-def scenario_red_fallback(question: str, move: str, round_no: int) -> AttackDraft {
-    area = pick_area([], question + " " + move, round_no, 0);
-    return area_red_fallback(area, question, move, round_no);
+def intake_followups(plan: str, known: str) -> IntakeQSet {
+    attempt = 0;
+    last = "";
+    while attempt < LLM_ATTEMPTS {
+        attempt += 1;
+        try {
+            return intake_followups_llm(plan, known);
+        } except Exception as e {
+            last = str(e);
+            _note_failure("intake_followups", attempt, last);
+        }
+    }
+    raise RuntimeError(_give_up("intake_followups", last));
 }
 
-def is_cached_fixture(fixture_id: str) -> bool {
-    return fixture_id in ["interlock", "hire", "launch", "runway"];
+def decide(decision: str, company: dict, facts: str) -> DecisionAnswer {
+    summary = _describe_company(company);
+    attempt = 0;
+    last = "";
+    while attempt < LLM_ATTEMPTS {
+        attempt += 1;
+        try {
+            return decide_llm(decision, summary, facts);
+        } except Exception as e {
+            last = str(e);
+            _note_failure("arbiter", attempt, last);
+        }
+    }
+    raise RuntimeError(_give_up("arbiter", last));
 }
 
-def blue_propose(branch_summary: str, question: str, prior_attacks: str, fixture_id: str, round_no: int, variety: int = 0, areas: list = []) -> MoveDraft {
-    cache = load_fixture_cache(fixture_id) if fixture_id else {};
-    key = f"blue_r{round_no}";
-    if cache and key in cache and variety == 0 {
-        return move_from_dict(cache[key]);
-    }
-    pick = round_no + variety;
-    if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        area = pick_area(areas, question, round_no, variety);
-        return area_blue_fallback(area, question, pick);
-    }
-    if prefer_cache() {
-        area = pick_area(areas, question, round_no, variety);
-        return area_blue_fallback(area, question, pick);
-    }
+def baseline_plan(plan: str) -> str {
+    # The foil is decoration, not the product — never fail a run over it.
     try {
-        return blue_propose_llm(branch_summary, question, prior_attacks);
+        return baseline_plan_llm(plan);
     } except Exception as e {
-        print(f"[SplitHorizon] blue_propose fallback: {e}");
-        area = pick_area(areas, question, round_no, variety);
-        return area_blue_fallback(area, question, pick);
-    }
-}
-
-def red_attack(question: str, branch_summary: str, move: str, fixture_id: str, round_no: int, areas: list = []) -> AttackDraft {
-    cache = load_fixture_cache(fixture_id) if fixture_id else {};
-    key = f"red_r{round_no}";
-    if cache and key in cache {
-        return attack_from_dict(cache[key]);
-    }
-    context = str(question) + " " + str(branch_summary) + " " + str(move);
-    if fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        area = pick_area(areas, context, round_no, 0);
-        return area_red_fallback(area, question, move, round_no);
-    }
-    if prefer_cache() {
-        area = pick_area(areas, context, round_no, 0);
-        return area_red_fallback(area, question, move, round_no);
-    }
-    try {
-        return red_attack_llm(branch_summary, move);
-    } except Exception as e {
-        print(f"[SplitHorizon] red_attack fallback: {e}");
-        area = pick_area(areas, context, round_no, 0);
-        return area_red_fallback(area, question, move, round_no);
-    }
-}
-
-def arbiter_narrate(scorecards: str, findings: str, fixture_id: str) -> MemoProse {
-    cache = load_fixture_cache(fixture_id) if fixture_id else {};
-    if cache and "memo" in cache {
-        return memo_from_dict(cache["memo"]);
-    }
-    # Custom + offline: empty shells — engine builds decision-specific intel.
-    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        return MemoProse(title="Decision memo", recommended_reason="", kill_shots="", open_risks="", dissent="", date_line="");
-    }
-    try {
-        return arbiter_narrate_llm(scorecards, findings);
-    } except Exception as e {
-        print(f"[SplitHorizon] arbiter fallback: {e}");
-        return MemoProse(title="Arbiter Decision Memo", recommended_reason="Longest cash-out among alive branches", kill_shots=findings[:500], open_risks="Uncertainty remains", dissent="Red findings", date_line="");
-    }
-}
-
-def plan_narrate(memo_summary: str, plan_steps: str, fixture_id: str) -> PlanNarration {
-    cache = load_fixture_cache(fixture_id) if fixture_id else {};
-    if cache and "plan_narration" in cache {
-        d = cache["plan_narration"];
-        return PlanNarration(analysis=str(d.get("analysis", "")), watch_for=str(d.get("watch_for", "")));
-    }
-    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        # Empty — engine.jac builds plan/analysis from verified dates + desk playbooks.
-        return PlanNarration(analysis="", watch_for="");
-    }
-    try {
-        return plan_narrate_llm(memo_summary, plan_steps);
-    } except Exception as e {
-        print(f"[SplitHorizon] plan_narrate fallback: {e}");
-        return PlanNarration(analysis="", watch_for="");
-    }
-}
-
-def baseline_plan(text: str, fixture_id: str) -> str {
-    cache = load_fixture_cache(fixture_id) if fixture_id else {};
-    if cache and "baseline" in cache {
-        return str(cache["baseline"]);
-    }
-    if prefer_cache() or fixture_id == "custom" or not is_cached_fixture(fixture_id) {
-        return "Chatbot foil: just do it — spend/hire now and hope the milestone lands. (No red-team, no cash-out date.)";
-    }
-    try {
-        return baseline_plan_llm(text);
-    } except Exception as e {
-        return f"One-shot baseline failed ({e}). Naive: execute the plan immediately without checking cash-out.";
+        print(f"[SplitHorizon] baseline foil skipped: {str(e)[:120]}");
+        return "";
     }
 }

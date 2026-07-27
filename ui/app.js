@@ -1327,35 +1327,35 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
   }
 
-  function renderBranchOutline(data) {
-    const box = $("branch-outline");
-    if (!box) return;
-    const recommended = data.memo?.recommended_branch_id;
-    const branches = data.branches || [];
-    if (!branches.length) {
-      box.hidden = true;
-      box.innerHTML = "";
-      return;
-    }
-    box.hidden = false;
-    box.innerHTML = branches
-      .map((b) => {
-        const v = branchVerdictLine(b, recommended);
-        const cls = [
-          "branch-chip",
-          b.alive === false ? "dead" : "",
-          b.id === recommended ? "pick" : "",
-          b.id === selectedId ? "on" : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        return `<button type="button" class="${cls}" data-id="${escapeHtml(b.id)}"><strong>${escapeHtml(b.id)} · ${escapeHtml(truncate(branchTitle(b), 36))}</strong><span>${escapeHtml(v.text)}</span></button>`;
-      })
-      .join("");
-    box.querySelectorAll(".branch-chip").forEach((btn) => {
-      btn.addEventListener("click", () => selectBranch(btn.dataset.id));
+  // Branch ids are references INTO the tree, not a separate list to read. Anywhere the
+  // arbiter says "b3", it becomes a chip that selects and scrolls to that node.
+  const BRANCH_REF_RE = /\b(b\d{1,3})\b/g;
+
+  function linkifyBranches(text) {
+    return escapeHtml(text).replace(BRANCH_REF_RE, (id) => {
+      const known = (runData?.branches || []).some((b) => b.id === id);
+      return known ? `<button type="button" class="branch-ref" data-id="${id}">${id}</button>` : id;
     });
   }
+
+  function setLinkedText(elId, text) {
+    const el = $(elId);
+    if (!el) return;
+    el.innerHTML = linkifyBranches(text || "");
+  }
+
+  function focusBranch(id) {
+    if (!(runData?.branches || []).some((b) => b.id === id)) return;
+    selectBranch(id);
+    const stage = $("viz-stage");
+    if (stage) stage.scrollIntoView({ behavior: "smooth", block: "center" });
+    pulseBranch(id);
+  }
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".branch-ref");
+    if (btn && btn.dataset.id) focusBranch(btn.dataset.id);
+  });
 
   function pulseBranch(id) {
     const sel = d3.select("#graph").selectAll(".branch-node").filter((d) => d.data.id === id).select(".walker-pulse");
@@ -1516,13 +1516,13 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     box.hidden = false;
     box.classList.remove("is-scrolled-away");
     $("answer-do").textContent = a.do || m.title || "Verdict";
-    $("answer-because").textContent = a.because || m.prose || "";
+    setLinkedText("answer-because", a.because || m.prose || "");
     if ($("answer-detail")) {
-      $("answer-detail").textContent = a.detail || "";
+      setLinkedText("answer-detail", a.detail || "");
       $("answer-detail").hidden = !a.detail;
     }
     $("answer-do-detail").textContent = a.decision ? `You asked: ${a.decision}` : a.one_liner || "";
-    $("answer-dont").textContent = a.dont || m.kill_shots || "See killed branches on the tree.";
+    setLinkedText("answer-dont", a.dont || m.kill_shots || "See killed branches on the tree.");
     $("answer-dates").textContent = a.dates || m.date_line || "";
     if ($("answer-blue")) $("answer-blue").textContent = a.blue || "—";
     if ($("answer-red")) $("answer-red").textContent = a.red || "—";
@@ -1579,7 +1579,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       return;
     }
     block.hidden = false;
-    $("plan-analysis").textContent = m.analysis || "";
+    setLinkedText("plan-analysis", m.analysis || "");
     const watch = $("plan-watch");
     if (m.watch_for) {
       watch.hidden = false;
@@ -1588,7 +1588,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     $("plan-steps").innerHTML = steps
       .map(
         (s) =>
-          `<li class="plan-step ${s.when === "Avoid" ? "avoid" : ""}"><span class="plan-when mono">${escapeHtml(s.when)}</span><div><strong>${escapeHtml(s.title)}</strong><p>${escapeHtml(s.detail)}</p></div></li>`
+          `<li class="plan-step ${s.when === "Avoid" ? "avoid" : ""}"><span class="plan-when mono">${escapeHtml(s.when)}</span><div><strong>${escapeHtml(s.title)}</strong><p>${linkifyBranches(s.detail)}</p></div></li>`
       )
       .join("");
   }
@@ -1770,7 +1770,6 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     renderKillCallout(data);
     renderMemo(data);
     renderTimeline(data);
-    renderBranchOutline(data);
     renderOspMap();
     // Show the full tree immediately (Obsidian-style map), then optional replay.
     const last = Math.max(0, n - 1);

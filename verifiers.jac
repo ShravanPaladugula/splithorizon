@@ -161,10 +161,21 @@ def cash_out_date(state: dict) -> str {
     return add_days(as_of, days);
 }
 
+glob MILESTONE_DRIFT_MIN: int = -30;
+glob MILESTONE_DRIFT_MAX: int = 90;
+
 def shift_milestone(state: dict, days: int) -> str {
+    # The milestone is a fixed deadline the founder committed to, not a free variable.
+    # Moves and stresses nudge it, but total drift is anchored to the ORIGINAL date so a
+    # multi-round tree cannot walk the deadline months away from what was actually stated.
     md = str(state.get("milestone_date", ""));
     if not md { return md; }
-    return add_days(md, days);
+    anchor = str(state.get("milestone_anchor", "")) or md;
+    proposed = add_days(md, days);
+    drift = days_between(anchor, proposed);
+    if drift > MILESTONE_DRIFT_MAX { return add_days(anchor, MILESTONE_DRIFT_MAX); }
+    if drift < MILESTONE_DRIFT_MIN { return add_days(anchor, MILESTONE_DRIFT_MIN); }
+    return proposed;
 }
 
 def effect_label(tag: str) -> str {

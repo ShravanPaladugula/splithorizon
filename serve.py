@@ -33,15 +33,13 @@ JAC_HOME = os.environ.get("JAC_HOME", "/tmp/jac_home")
 
 def jac_env() -> dict:
     env = os.environ.copy()
-    # Fresh graph memory per process so walkers only see this run's OSP nodes.
+    # Graph memory is per-project so walkers only see this app's OSP nodes. HOME is left
+    # alone on purpose: the jac runtime (and the litellm that `jac install` syncs into it)
+    # is cached under the real $HOME, and overriding it hides the LLM capability.
     run_home = ROOT / ".jac" / "run_home"
     run_home.mkdir(parents=True, exist_ok=True)
-    env["HOME"] = str(run_home)
     env["JAC_HOME"] = str(run_home)
     env["PATH"] = str(Path(JAC_BIN).parent) + os.pathsep + env.get("PATH", "")
-    # Demo/default: offline cache unless .env set SPLITHORIZON_LIVE=1
-    if "SPLITHORIZON_LIVE" not in env:
-        env["SPLITHORIZON_LIVE"] = "0"
     return env
 
 
@@ -141,16 +139,15 @@ def run_engine(
         "}\n"
     )
     env = jac_env()
-    # War-room forks always use offline/scenario drafts. Live Gemini hangs and
-    # missing litellm both dump ERROR spam into stderr and stall the UI.
-    env["SPLITHORIZON_LIVE"] = "0"
+    # Every Blue move, Red attack and the arbiter memo is a live model call, so a
+    # 4-round fork is ~15 sequential round trips. Give it room.
     proc = subprocess.run(
         [JAC_BIN, "run", str(runner)],
         cwd=str(ROOT),
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=420,
     )
     if path.exists():
         return json.loads(path.read_text())
@@ -158,10 +155,113 @@ def run_engine(
     # Collapse repeated byllm ERROR lines into one readable message.
     if "litellm" in err.lower() or "Capability 'llm'" in err:
         raise RuntimeError(
-            "LLM runtime missing or failed. Run `jac install` in the project, "
-            "then retry. Forks do not need live LLM — restart serve.py if this persists."
+            "LLM runtime missing. Run `jac install` in the project, then retry."
         )
+    if "failed after" in err and "attempts via" in err:
+        # Surface the model failure verbatim — never quietly substitute canned advice.
+        line = next((l for l in err.splitlines() if "attempts via" in l), err[:300])
+        raise RuntimeError(f"Groq call failed, so no answer was generated: {line.strip()}")
     raise RuntimeError(err[:800] if err else f"jac exited {proc.returncode}")
+
+
+EVENT_KINDS = {"seed", "blue", "red", "arbiter", "walker", "prune", "halt"}
+
+
+def _write_runner(fixture_id: str, proposal: str, rounds: int, baseline: bool, company: dict, areas: list) -> Path:
+    runner = ROOT / "run_once.jac"
+    runner.write_text(
+        "include agents;\ninclude fixtures;\nimport json;\nimport os;\n\n"
+        "with entry {\n"
+        f"    fid = {json.dumps(fixture_id)};\n"
+        f"    text = {json.dumps(proposal)};\n"
+        f"    company = {json.dumps(company)};\n"
+        f"    areas = {json.dumps(areas)};\n"
+        "    if not text {\n"
+        "        fx = get_fixture(fid);\n"
+        "        if fx { text = str(fx[\"proposal\"]); }\n"
+        "    }\n"
+        "    root spawn ProtocolWalker(\n"
+        "        proposal=text,\n"
+        "        fixture_id=fid,\n"
+        f"        rounds={rounds},\n"
+        f"        baseline={str(baseline)},\n"
+        "        company_json=json.dumps(company),\n"
+        "        areas_json=json.dumps(areas)\n"
+        "    );\n"
+        "    print(\"OK\");\n"
+        "}\n"
+    )
+    return runner
+
+
+def stream_engine(fixture_id, proposal, rounds=3, baseline=True, company=None, areas=None):
+    """Run the protocol, yielding (event_name, payload) as the walker prints progress.
+
+    Every Blue/Red/arbiter draft is a sequential model call, so the only honest
+    progress signal is the engine's own log lines. We forward them live.
+    """
+    company = company or {}
+    areas = areas or []
+    rounds = max(1, min(int(rounds or 3), 4))
+    path = OUT / "last_run.json"
+    OUT.mkdir(exist_ok=True)
+    if path.exists():
+        path.unlink()
+
+    runner = _write_runner(fixture_id, proposal, rounds, baseline, company, areas)
+    env = jac_env()
+    env["PYTHONUNBUFFERED"] = "1"
+
+    # Round 1 forks two rival strategies, later rounds one per surviving leaf,
+    # plus a Red probe each; then the baseline foil and the arbiter memo.
+    expected = 4 * rounds + 2
+    yield "start", {"expected_steps": expected, "rounds": rounds}
+
+    proc = subprocess.Popen(
+        [JAC_BIN, "run", str(runner)],
+        cwd=str(ROOT),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    done = 0
+    tail: list[str] = []
+    try:
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            tail.append(line)
+            if len(tail) > 40:
+                tail.pop(0)
+            if not line.startswith("["):
+                continue
+            kind, _, rest = line[1:].partition("] ")
+            kind = kind.strip()
+            msg = rest.strip()
+            if kind == "step":
+                yield "step", {"message": msg, "done": done, "expected": expected}
+            elif kind in EVENT_KINDS:
+                done += 1
+                yield "event", {"kind": kind, "message": msg, "done": done, "expected": expected}
+            elif kind == "SplitHorizon" and "rate-limited" in msg:
+                secs = re.search(r"waiting (\d+)s", msg)
+                yield "wait", {
+                    "message": f"Groq rate limit — pausing {secs.group(1) if secs else 'a few'}s before retry",
+                    "seconds": int(secs.group(1)) if secs else 0,
+                }
+    finally:
+        proc.wait()
+
+    if path.exists():
+        yield "done", json.loads(path.read_text())
+        return
+    err = "\n".join(tail).strip()
+    if "attempts:" in err:
+        line = next((l for l in tail if "attempts:" in l), err[-300:])
+        yield "error", {"error": f"Groq call failed, so no answer was generated: {line.strip()[:400]}"}
+    else:
+        yield "error", {"error": (err[-600:] or f"jac exited {proc.returncode}")}
 
 
 PROFILES = ROOT / "profiles.json"
