@@ -1150,6 +1150,312 @@ body {
 .lg.dead::before { background: var(--dead); }
 .lg.pick::before { background: var(--gold); }
 
+/* ---- Verdict panel: badge, metric row, Blue/Red columns ---- */
+.verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+.verdict-badge {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 0.22rem 0.6rem;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.verdict-badge.yes { background: color-mix(in srgb, var(--teal) 20%, transparent); color: var(--teal); border: 1px solid color-mix(in srgb, var(--teal) 45%, transparent); }
+.verdict-badge.no { background: color-mix(in srgb, var(--dead) 20%, transparent); color: var(--dead); border: 1px solid color-mix(in srgb, var(--dead) 45%, transparent); }
+.verdict-badge.partial { background: color-mix(in srgb, var(--gold) 20%, transparent); color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent); }
+
+.answer-asked {
+  font-size: 0.82rem;
+  opacity: 0.6;
+  margin: 0.35rem 0 0;
+}
+.dont-callout {
+  margin: 0.85rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--dead);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--dead) 8%, transparent);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* Evidence rows — a named check, the rule it enforces, then the measurement. */
+.ev-row {
+  padding: 0.45rem 0 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.ev-row:first-child { border-top: 0; }
+.ev-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.ev-head strong { font-size: 0.84rem; }
+.ev-mark { font-size: 0.8rem; line-height: 1; }
+.ev-row.pass .ev-mark { color: var(--teal); }
+.ev-row.fail .ev-mark { color: var(--dead); }
+.ev-row.fail .ev-head strong { color: var(--dead); }
+.ev-rule {
+  font-size: 0.68rem;
+  opacity: 0.5;
+  flex-basis: 100%;
+}
+.ev-detail {
+  margin: 0.22rem 0 0;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+#hard-rules li { margin-bottom: 0.5rem; line-height: 1.45; }
+.rule-id {
+  font-size: 0.66rem;
+  opacity: 0.45;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.rule-blurb { font-size: 0.76rem; opacity: 0.7; }
+
+.path-strip {
+  margin-top: 1rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
+}
+.path-label {
+  display: block;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.55;
+  margin-bottom: 0.4rem;
+}
+.path-chain {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+.path-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.path-node:hover { transform: translateY(-1px); border-color: var(--gold); }
+.path-node .path-id { font-size: 0.66rem; opacity: 0.55; }
+.path-node.blue { border-color: color-mix(in srgb, var(--teal) 40%, transparent); }
+.path-node.red { border-color: color-mix(in srgb, var(--signal) 35%, transparent); opacity: 0.72; }
+.path-node.final {
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  font-weight: 500;
+}
+.path-arrow { opacity: 0.35; font-size: 0.8rem; }
+
+.metric-caption {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  opacity: 0.55;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+}
+.metric {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.metric dt {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.6;
+}
+.metric dd {
+  margin: 0.2rem 0 0;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+.metric-note {
+  display: block;
+  margin-top: 0.16rem;
+  font-size: 0.68rem;
+  opacity: 0.55;
+}
+.metric.good dd { color: var(--teal); }
+.metric.bad dd { color: var(--dead); }
+.metric.warn dd { color: var(--gold); }
+
+.sides-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.1rem;
+}
+.side-col h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 0.45rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+.blue-col h3 { color: var(--teal); }
+.red-col h3 { color: var(--signal); }
+.side-count { opacity: 0.5; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.side-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.side-list li {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
+}
+.side-list li.empty { opacity: 0.5; font-size: 0.82rem; border-style: dashed; }
+.side-top { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.side-top strong { font-size: 0.88rem; }
+.side-why { margin: 0.3rem 0 0; font-size: 0.82rem; line-height: 1.45; opacity: 0.8; }
+.side-num { margin: 0.28rem 0 0; font-size: 0.72rem; opacity: 0.65; }
+
+.outcome {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.38rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.outcome.dead { background: color-mix(in srgb, var(--dead) 18%, transparent); color: var(--dead); }
+.outcome.live { background: color-mix(in srgb, var(--teal) 15%, transparent); color: var(--teal); }
+.outcome.pick { background: color-mix(in srgb, var(--gold) 20%, transparent); color: var(--gold); }
+.sev {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.38rem;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  opacity: 0.8;
+}
+.sev.high { color: var(--dead); border-color: color-mix(in srgb, var(--dead) 40%, transparent); }
+.sev.medium { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 40%, transparent); }
+
+/* ---- Memo + timeline ---- */
+.memo-asked { font-size: 0.85rem; opacity: 0.7; margin: 0.3rem 0 0.6rem; }
+.memo-tags { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.memo-facts { margin: 0; display: grid; gap: 0.5rem; }
+.memo-facts dt {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.6;
+}
+.memo-facts dd { margin: 0.15rem 0 0; font-size: 0.85rem; line-height: 1.5; }
+
+.tl-head { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.15rem; }
+.tl-kind {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  padding: 0.08rem 0.34rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.tl-kind.blue { background: color-mix(in srgb, var(--teal) 18%, transparent); color: var(--teal); }
+.tl-kind.red { background: color-mix(in srgb, var(--signal) 18%, transparent); color: var(--signal); }
+.tl-kind.arbiter { background: color-mix(in srgb, var(--gold) 20%, transparent); color: var(--gold); }
+.tl-id { font-size: 0.68rem; opacity: 0.55; }
+.tl-msg { font-size: 0.83rem; line-height: 1.45; }
+.timeline li.killed .tl-msg { color: var(--dead); }
+
+/* Live run progress — every step is a sequential model call, so show the work. */
+.run-progress {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  margin-bottom: 0.4rem;
+}
+.progress-track {
+  height: 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--teal), var(--gold));
+  transition: width 0.45s ease;
+}
+.progress-fill.waiting {
+  background: linear-gradient(90deg, var(--signal), var(--gold));
+  animation: progress-pulse 1.1s ease-in-out infinite;
+}
+@keyframes progress-pulse {
+  50% { opacity: 0.55; }
+}
+.progress-now {
+  margin: 0.55rem 0 0;
+  font-size: 0.83rem;
+  line-height: 1.35;
+}
+.progress-now::before {
+  content: "▸ ";
+  color: var(--teal);
+}
+.progress-feed {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 148px;
+  overflow-y: auto;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.progress-feed li {
+  opacity: 0.72;
+  padding: 0.1rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.progress-feed li.blue { color: var(--teal); opacity: 0.95; }
+.progress-feed li.red { color: var(--signal); opacity: 0.95; }
+.progress-feed li.kill { color: var(--dead); opacity: 1; font-weight: 500; }
+.progress-feed li.arbiter { color: var(--gold); opacity: 1; }
+.progress-feed li.wait { color: var(--signal); opacity: 0.85; font-style: italic; }
+
 /* Inline reference to a node in the tree — click jumps to it and pulses it. */
 .branch-ref {
   font: inherit;
@@ -1618,26 +1924,27 @@ body {
 .node-accent.pick { fill: var(--gold); }
 .node-id {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
   fill: var(--muted);
   pointer-events: none;
 }
 .node-title {
   font-family: var(--display);
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 650;
   fill: var(--ink);
   pointer-events: none;
 }
 .node-meta {
   font-family: var(--mono);
-  font-size: 9px;
-  fill: var(--muted);
+  font-size: 9.5px;
+  fill: color-mix(in srgb, var(--ink) 62%, transparent);
   pointer-events: none;
 }
 .node-verdict {
   font-family: var(--sans);
-  font-size: 9.5px;
+  font-size: 10px;
   fill: var(--teal-deep);
   pointer-events: none;
 }
@@ -1668,3 +1975,135 @@ footer code {
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
 }
+
+/* =====================================================================
+   Motion — short, transform/opacity only, and fully opt-out-able.
+   Each cue marks a moment that matters: a verdict landing, a branch
+   dying, a step completing. Nothing loops except live progress.
+   ===================================================================== */
+
+@keyframes sh-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sh-pop {
+  0%   { opacity: 0; transform: scale(0.82); }
+  60%  { transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes sh-slide-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sh-flash {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  35%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--dead) 28%, transparent); }
+}
+@keyframes sh-sheen {
+  from { background-position: -160% 0; }
+  to   { background-position: 260% 0; }
+}
+
+/* The answer arriving — panel lifts, verdict pops a beat later. */
+.clear-answer:not([hidden]) { animation: sh-rise 0.42s cubic-bezier(0.2, 0.7, 0.3, 1) backwards; }
+.verdict-badge:not([hidden]) { animation: sh-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2) 0.16s backwards; }
+.dont-callout:not([hidden]) { animation: sh-rise 0.4s ease 0.22s backwards; }
+
+/* Metrics deal themselves in left to right. */
+.metric { animation: sh-rise 0.38s ease backwards; }
+.metric:nth-child(1) { animation-delay: 0.06s; }
+.metric:nth-child(2) { animation-delay: 0.11s; }
+.metric:nth-child(3) { animation-delay: 0.16s; }
+.metric:nth-child(4) { animation-delay: 0.21s; }
+.metric:nth-child(5) { animation-delay: 0.26s; }
+.metric:nth-child(6) { animation-delay: 0.31s; }
+.metric:nth-child(7) { animation-delay: 0.36s; }
+.metric { transition: transform 0.18s ease, border-color 0.18s ease; }
+.metric:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--ink) 22%, transparent); }
+
+/* Route chips walk in along the path. */
+.path-node { animation: sh-slide-in 0.32s ease backwards; }
+.path-node:nth-child(2) { animation-delay: 0.05s; }
+.path-node:nth-child(4) { animation-delay: 0.1s; }
+.path-node:nth-child(6) { animation-delay: 0.15s; }
+.path-node:nth-child(8) { animation-delay: 0.2s; }
+.path-node:nth-child(10) { animation-delay: 0.25s; }
+
+/* Blue/Red rows and plan steps stagger. */
+.side-list li,
+.plan-step { animation: sh-rise 0.34s ease backwards; }
+.side-list li:nth-child(2), .plan-step:nth-child(2) { animation-delay: 0.05s; }
+.side-list li:nth-child(3), .plan-step:nth-child(3) { animation-delay: 0.1s; }
+.side-list li:nth-child(4), .plan-step:nth-child(4) { animation-delay: 0.15s; }
+.side-list li:nth-child(5), .plan-step:nth-child(5) { animation-delay: 0.2s; }
+.side-list li:nth-child(6), .plan-step:nth-child(6) { animation-delay: 0.25s; }
+.side-list li { transition: transform 0.16s ease, border-color 0.16s ease; }
+.side-list li:hover { transform: translateX(2px); border-color: color-mix(in srgb, var(--ink) 20%, transparent); }
+
+/* A branch dying is the one moment worth a flash. */
+.kill-callout:not([hidden]) {
+  animation: sh-rise 0.4s ease backwards, sh-flash 1.05s ease 0.4s 2;
+  transition: transform 0.18s ease;
+}
+.kill-callout:hover { transform: translateY(-2px); }
+
+/* Live run: each step slides into the feed; the bar sheens while working. */
+.progress-feed li { animation: sh-slide-in 0.28s ease backwards; }
+.progress-feed li.kill { animation: sh-slide-in 0.28s ease backwards, sh-flash 0.9s ease 0.28s 1; }
+.progress-fill {
+  background-image: linear-gradient(90deg, var(--teal), var(--gold), var(--teal));
+  background-size: 220% 100%;
+  animation: sh-sheen 2.4s linear infinite;
+}
+.run-progress:not([hidden]) { animation: sh-rise 0.3s ease backwards; }
+
+/* Evidence rows reveal as you open a branch. */
+.ev-row { animation: sh-rise 0.3s ease backwards; }
+.ev-row:nth-child(2) { animation-delay: 0.04s; }
+.ev-row:nth-child(3) { animation-delay: 0.08s; }
+.ev-row:nth-child(4) { animation-delay: 0.12s; }
+
+/* Inspector slides in from the edge it is docked to. */
+.inspector:not([hidden]) { animation: sh-rise 0.3s cubic-bezier(0.2, 0.7, 0.3, 1) backwards; }
+
+/* Buttons acknowledge the press. */
+.run-btn, .ghost-btn, .branch-ref, .path-node, .schema-node {
+  transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.run-btn:active, .ghost-btn:active, .branch-ref:active, .path-node:active { transform: translateY(1px) scale(0.985); }
+.run-btn:not(:disabled):hover { transform: translateY(-1px); }
+.run-btn:disabled { opacity: 0.6; cursor: progress; }
+
+/* Timeline rows highlight on hover and when the scrubber lands on them. */
+.timeline li { transition: background 0.18s ease, transform 0.16s ease; }
+.timeline li:hover { transform: translateX(2px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tree cards: lift on hover, ring when selected. Transform-only so the SVG stays cheap. */
+.branch-node .node-card,
+.branch-node .node-accent {
+  transition: transform 0.16s ease, filter 0.16s ease, stroke 0.16s ease;
+  transform-origin: center;
+}
+.branch-node:hover .node-card {
+  filter: drop-shadow(0 10px 20px rgba(21, 34, 31, 0.16));
+  stroke: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+.branch-node.selected .node-card {
+  filter: drop-shadow(0 8px 18px rgba(21, 34, 31, 0.14));
+}
+.branch-link { transition: stroke-opacity 0.25s ease, stroke-width 0.2s ease; }
+.branch-node:hover ~ .branch-node { /* no-op guard for specificity */ }
+
+/* Metric values tick up, so give the digits a stable box to avoid reflow jitter. */
+.metric dd { font-variant-numeric: tabular-nums; min-height: 1.25em; }

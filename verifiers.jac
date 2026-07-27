@@ -207,7 +207,11 @@ def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int
     bp = _clamp(float(burn_pct), -40.0, 80.0);
     mp = _clamp(float(mrr_pct), -50.0, 60.0);
     hc = int(_clamp(float(hc_delta), -3.0, 5.0));
-    sh = int(_clamp(float(shift_days), -45.0, 90.0));
+    # A CHOICE nudges the delivery date; it does not get to move a committed
+    # milestone by a quarter. Only Red stress (apply_stress_draft) slips it hard —
+    # that is what a slip means. Without this a model can walk the deadline past
+    # its own cash-out and kill every branch it proposes.
+    sh = int(_clamp(float(shift_days), -21.0, 21.0));
     burn_delta = float(st.get("monthly_burn", 0.0)) * bp / 100.0;
     st["monthly_burn"] = float(st.get("monthly_burn", 0.0)) + burn_delta + float(burn_add);
     st["mrr"] = max(0.0, float(st.get("mrr", 0.0)) * (1.0 + mp / 100.0));
@@ -219,6 +223,47 @@ def apply_move_draft(state: dict, burn_pct: float, mrr_pct: float, hc_delta: int
     if sh != 0 { st["milestone_date"] = shift_milestone(st, sh); }
     if float(st.get("monthly_burn", 0.0)) < 1000.0 { st["monthly_burn"] = 1000.0; }
     return {"state": st, "cost_delta": burn_delta * 3.0 + spend, "tag": "custom", "label": label};
+}
+
+def resolve_plan_spend(company: dict, scope_pct: float, model_cash: float) -> dict {
+    # THE binding: when the founder told us what their plan costs, that number — not
+    # the model's guess — drives the arithmetic. The model only chooses how much of
+    # the plan to commit (scope_pct); the dollars are always the founder's.
+    plan_cash = float(company.get("plan_cash", 0.0)) if company else 0.0;
+    plan_burn = float(company.get("plan_burn_delta", 0.0)) if company else 0.0;
+    scope = _clamp(float(scope_pct), 0.0, 120.0) / 100.0;
+    if plan_cash > 0.0 or plan_burn > 0.0 {
+        return {
+            "cash_spend": max(0.0, plan_cash * scope),
+            "burn_add": max(0.0, plan_burn * scope),
+            "scope_pct": scope * 100.0,
+            "source": "founder"
+        };
+    }
+    # No figure given at intake — fall back to the model's estimate, clearly labelled.
+    return {
+        "cash_spend": max(0.0, float(model_cash)),
+        "burn_add": 0.0,
+        "scope_pct": scope * 100.0,
+        "source": "model"
+    };
+}
+
+def check_plan_cost(spend: float, burn_add: float, scope_pct: float, source: str, cash: float) -> EvidenceResult {
+    if source == "founder" {
+        val = f"${spend:,.0f} one-time";
+        if burn_add > 0.0 { val = val + f" + ${burn_add:,.0f}/mo"; }
+        detail = f"Applied {scope_pct:.0f}% of the cost YOU stated at intake — {val}. Figures come from your intake answers, not from the model.";
+    } else {
+        val = f"${spend:,.0f} one-time";
+        detail = f"No plan cost captured at intake, so the model estimated {val}. Give a figure at intake to bind this to your own numbers.";
+    }
+    # Spending past the bank is the one way this check fails.
+    ok = spend <= float(cash);
+    if not ok {
+        detail = detail + f" — EXCEEDS cash on hand (${float(cash):,.0f}).";
+    }
+    return EvidenceResult(check="plan_cost_applied", value=val, passed=ok, module="finance", detail=detail);
 }
 
 def apply_stress_draft(state: dict, burn_pct: float, mrr_pct: float, shift_days: int) -> dict {

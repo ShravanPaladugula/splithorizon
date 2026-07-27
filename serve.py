@@ -114,7 +114,7 @@ def run_engine(
     if path.exists():
         path.unlink()
     # Cap depth so fork trees stay responsive.
-    rounds = max(1, min(int(rounds or 3), 4))
+    rounds = max(1, min(int(rounds or 3), 5))
     runner = ROOT / "run_once.jac"
     runner.write_text(
         "include agents;\ninclude fixtures;\nimport json;\nimport os;\n\n"
@@ -202,7 +202,7 @@ def stream_engine(fixture_id, proposal, rounds=3, baseline=True, company=None, a
     """
     company = company or {}
     areas = areas or []
-    rounds = max(1, min(int(rounds or 3), 4))
+    rounds = max(1, min(int(rounds or 3), 5))
     path = OUT / "last_run.json"
     OUT.mkdir(exist_ok=True)
     if path.exists():
@@ -217,41 +217,64 @@ def stream_engine(fixture_id, proposal, rounds=3, baseline=True, company=None, a
     expected = 4 * rounds + 2
     yield "start", {"expected_steps": expected, "rounds": rounds}
 
+    # The jac runtime block-buffers stdout through a pipe and ignores PYTHONUNBUFFERED,
+    # so give it a pty: it then thinks it is a terminal and line-buffers, which is the
+    # difference between a progress bar and a 90-second blank stare.
+    import pty
+    import select
+
+    main_fd, child_fd = pty.openpty()
     proc = subprocess.Popen(
         [JAC_BIN, "run", str(runner)],
         cwd=str(ROOT),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
+        stdout=child_fd,
+        stderr=child_fd,
+        close_fds=True,
     )
+    os.close(child_fd)
+
     done = 0
     tail: list[str] = []
+    buf = b""
     try:
-        for raw in proc.stdout:
-            line = raw.rstrip("\n")
-            tail.append(line)
-            if len(tail) > 40:
-                tail.pop(0)
-            if not line.startswith("["):
-                continue
-            kind, _, rest = line[1:].partition("] ")
-            kind = kind.strip()
-            msg = rest.strip()
-            if kind == "step":
-                yield "step", {"message": msg, "done": done, "expected": expected}
-            elif kind in EVENT_KINDS:
-                done += 1
-                yield "event", {"kind": kind, "message": msg, "done": done, "expected": expected}
-            elif kind == "SplitHorizon" and "rate-limited" in msg:
-                secs = re.search(r"waiting (\d+)s", msg)
-                yield "wait", {
-                    "message": f"Groq rate limit — pausing {secs.group(1) if secs else 'a few'}s before retry",
-                    "seconds": int(secs.group(1)) if secs else 0,
-                }
+        while True:
+            ready, _, _ = select.select([main_fd], [], [], 0.5)
+            if ready:
+                try:
+                    chunk = os.read(main_fd, 8192)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    raw, buf = buf.split(b"\n", 1)
+                    line = raw.decode("utf-8", "replace").rstrip("\r")
+                    tail.append(line)
+                    if len(tail) > 40:
+                        tail.pop(0)
+                    if not line.startswith("["):
+                        continue
+                    kind, _, rest = line[1:].partition("] ")
+                    kind = kind.strip()
+                    msg = rest.strip()
+                    if kind == "step":
+                        yield "step", {"message": msg, "done": done, "expected": expected}
+                    elif kind in EVENT_KINDS:
+                        done += 1
+                        yield "event", {"kind": kind, "message": msg, "done": done, "expected": expected}
+                    elif kind == "SplitHorizon" and "rate-limited" in msg:
+                        secs = re.search(r"waiting (\d+)s", msg)
+                        yield "wait", {
+                            "message": f"Groq rate limit — pausing {secs.group(1) if secs else 'a few'}s before retry",
+                            "seconds": int(secs.group(1)) if secs else 0,
+                        }
+            elif proc.poll() is not None:
+                break
     finally:
         proc.wait()
+        os.close(main_fd)
 
     if path.exists():
         yield "done", json.loads(path.read_text())
@@ -693,6 +716,17 @@ class Handler(SimpleHTTPRequestHandler):
                 )
             if parsed.path == "/api/scan-site":
                 return self._json(scan_website(body.get("url") or body.get("website") or ""))
+            if parsed.path == "/api/run/stream":
+                return self._sse(
+                    stream_engine(
+                        fixture_id=body.get("fixture_id") or "custom",
+                        proposal=body.get("proposal") or "",
+                        rounds=int(body.get("rounds") or 3),
+                        baseline=bool(body.get("baseline", True)),
+                        company=body.get("company") or {},
+                        areas=body.get("areas") or body.get("modules") or [],
+                    )
+                )
             if parsed.path == "/api/run":
                 return self._json(
                     run_engine(
@@ -709,6 +743,21 @@ class Handler(SimpleHTTPRequestHandler):
             self._json({"error": str(e)}, 400)
         except Exception as e:  # noqa: BLE001
             self._json({"error": str(e)}, 500)
+
+    def _sse(self, events):
+        """Server-sent events. HTTP/1.0 + close-delimited body keeps this dependency-free."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            for name, payload in events:
+                frame = f"event: {name}\ndata: {json.dumps(payload)}\n\n"
+                self.wfile.write(frame.encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # browser navigated away mid-run
 
     def _json(self, obj, status: int = 200):
         raw = json.dumps(obj).encode("utf-8")

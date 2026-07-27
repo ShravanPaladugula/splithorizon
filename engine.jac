@@ -371,15 +371,39 @@ def blue_turn(session: Session, parent: dict, round_no: int) -> dict {
     # The $30k/mo hire burn-step check only applies to hiring moves — a deliberate
     # spend (ads, gear) is judged by alive_at_milestone instead.
     prior_burn = float(parent.get("monthly_burn", 0.0)) if draft.headcount_delta != 0 else -1.0;
+
+    # Founder's dollars, not the model's. If a plan cost was captured at intake, the
+    # move's size is THAT number scaled by the scope the model chose.
+    spend = resolve_plan_spend(session.company, draft.scope_pct, draft.cash_spend_usd);
+    burn_pct = draft.burn_delta_pct;
+    if str(spend["source"]) == "founder" {
+        # The plan's own cost is already applied in dollars. Keep burn_delta_pct as a
+        # narrow second-order band so the founder's stated figure dominates the move —
+        # a wider band lets a percentage of a big burn outweigh the number they gave us.
+        if burn_pct < -10.0 { burn_pct = -10.0; }
+        elif burn_pct > 4.0 { burn_pct = 4.0; }
+    }
     applied = apply_move_draft(
         state_from_branch(parent),
-        draft.burn_delta_pct, draft.mrr_delta_pct,
+        burn_pct, draft.mrr_delta_pct,
         draft.headcount_delta, draft.milestone_shift_days, label,
-        draft.cash_spend_usd, 0.0
+        float(spend["cash_spend"]), float(spend["burn_add"])
     );
+    child["scope_pct"] = float(spend["scope_pct"]);
+    child["cost_source"] = str(spend["source"]);
     new_state = applied["state"];
     cost_delta = float(applied["cost_delta"]);
     bundle = verify_state(new_state, prior_burn);
+    # Make the money trail visible: show that this branch spent the founder's figure.
+    if float(spend["cash_spend"]) > 0.0 or float(spend["burn_add"]) > 0.0 {
+        bundle.evidence.append(
+            check_plan_cost(
+                float(spend["cash_spend"]), float(spend["burn_add"]),
+                float(spend["scope_pct"]), str(spend["source"]),
+                float(parent.get("cash", 0.0))
+            )
+        );
+    }
     write_state_to_branch(child, new_state, bundle, cost_delta);
     append_evidence(session, child["id"], bundle);
 

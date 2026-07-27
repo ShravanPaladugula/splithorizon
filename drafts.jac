@@ -15,10 +15,12 @@ import time;
 # Two tiers, because Groq's free tier bills a per-model token/day budget:
 #   llm      - high volume (a dozen Blue/Red drafts per run), small structured outputs
 #   llm_lead - one call per run, writes the answer the founder actually reads
-# Each Groq model carries its own tokens/day budget, so splitting the work also
-# doubles the daily headroom. llama-3.1-8b is deliberately NOT used: it cannot hold
-# a strict JSON schema, which is the whole contract here.
-glob LLM_MODEL: str = os.environ.get("SPLITHORIZON_MODEL", "groq/openai/gpt-oss-20b");
+# Each Groq model carries its own tokens/minute AND tokens/day budget, so splitting
+# the work across two models doubles both. Drafts sit on the 70B because it has the
+# highest TPM ceiling (12k vs 8k), and TPM is what paces a single run — a dozen draft
+# calls back to back. llama-3.1-8b is deliberately NOT used: it cannot hold a strict
+# JSON schema, which is the whole contract here.
+glob LLM_MODEL: str = os.environ.get("SPLITHORIZON_MODEL", "groq/llama-3.3-70b-versatile");
 glob LLM_LEAD_MODEL: str = os.environ.get("SPLITHORIZON_LEAD_MODEL", "groq/openai/gpt-oss-120b");
 glob llm = Model(model_name=LLM_MODEL);
 glob llm_lead = Model(model_name=LLM_LEAD_MODEL);
@@ -35,6 +37,7 @@ obj MoveDraft {
     has burn_delta_pct: float = 0.0;
     has mrr_delta_pct: float = 0.0;
     has cash_spend_usd: float = 0.0;
+    has scope_pct: float = 100.0;
     has headcount_delta: int = 0;
     has milestone_shift_days: int = 0;
 }
@@ -84,13 +87,26 @@ obj DecisionAnswer {
 sem blue_propose_llm = """
 BLUE argues FOR a way of running the founder's OWN plan. Propose ONE variation of THAT plan —
 full scope, partial, cheaper substitute, staged, or don't do it. 'Hire 10 engineers' means
-options around THAT hire, never 'start a raise'. Must differ materially from already_tried
-(different scope or mechanism, not a reworded twin).
+options around THAT hire, never 'start a raise'.
+
+HARD RULE: already_tried lists moves ALREADY on the tree. Your move must be a DIFFERENT
+scope or a DIFFERENT mechanism from every one of them. "Hire 3 sales reps" and "Hire field
+reps" are the same move twice — that is a failure. If the obvious variants are taken, change
+the mechanism: contractors, agency, commission-only, tooling instead of people, or hold.
+
 label: imperative, <=6 words, names the action. claim: one sentence, why it survives the
 cash-out race. desk: finance|management|launch|publicity.
-burn_delta_pct -40..80 (monthly burn). mrr_delta_pct -50..60. cash_spend_usd: one-time cash,
-0 if none, derived from the founder's own figures, never above cash. headcount_delta -3..5,
-non-zero ONLY for hiring/firing. milestone_shift_days -45..90, negative = sooner.
+scope_pct 0..120: what FRACTION of the founder's own stated plan cost this variation commits.
+100 = the plan exactly as stated, 50 = half scope, 0 = don't do it, 120 = deliberately more.
+This is how you size a move. If the founder gave a cost at intake, THEIR number is multiplied
+by your scope_pct and cash_spend_usd is ignored entirely.
+cash_spend_usd: one-time cash, used ONLY when the founder gave no figure. Never above cash.
+burn_delta_pct -40..80 (monthly burn) — second-order effects only when a plan cost is known,
+since the plan's own cost is already applied from scope_pct. mrr_delta_pct -50..60.
+headcount_delta -3..5, non-zero ONLY for hiring/firing.
+milestone_shift_days: -21..21, and 0 unless the move genuinely changes the DELIVERY date.
+Hiring, spending or pricing decisions almost never move a committed milestone — leave it 0.
+Negative = ships sooner. Never delay the milestone to make your move look affordable.
 Effects must match the move: holding spend cannot raise burn; a hire raises burn and headcount.
 """;
 def blue_propose_llm(plan: str, company: str, desk: str, already_tried: str, round_no: int) -> MoveDraft by llm(temperature=0.55);
@@ -143,7 +159,9 @@ title: <=8 words, the verdict. headline: starts YES / NO / PARTIAL / NOT YET fol
 em dash and a complete instruction naming what to do instead — e.g. "NO — hire one rep now,
 not three." Never restate the rejected plan as if recommending it.
 because: 1-2 sentences citing cash-out vs milestone date and the given margin.
-dont: the alternative that died and the number that killed it, '' if none died.
+dont: one complete sentence naming the alternative that died and the dated reason it died,
+e.g. "Don't hire all three now — that line runs out of cash Oct 25, 16 days before the
+milestone." Never a bare fragment or a dangling number. Empty string if nothing died.
 analysis: 3-5 sentences — what Blue tried, what Red broke, why this line survived and the
 others did not; cite branch ids exactly as in FACTS. watch_for: 1-2 sentences, the earliest
 observable signal this is going wrong. steps: 3-6 actions, 'when' = a real date from FACTS or

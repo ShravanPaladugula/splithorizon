@@ -155,35 +155,33 @@
     </div>
 
     <div class="clear-answer" id="clear-answer" hidden>
-      <p class="eyebrow">Straight answer</p>
-      <h2 id="answer-do">—</h2>
+      <p class="eyebrow">The call</p>
+      <div class="verdict-head">
+        <span class="verdict-badge" id="verdict-badge" hidden></span>
+        <h2 id="answer-do">—</h2>
+      </div>
       <p id="answer-because" class="answer-because"></p>
-      <p id="answer-detail" class="answer-detail"></p>
-      <div class="answer-grid">
-        <div>
-          <p class="answer-label">Decision</p>
-          <p id="answer-do-detail"></p>
-        </div>
-        <div>
-          <p class="answer-label">Don’t</p>
-          <p id="answer-dont"></p>
-        </div>
-        <div class="answer-dates">
-          <p class="answer-label">Dates</p>
-          <p id="answer-dates" class="mono"></p>
-        </div>
-        <div>
-          <p class="answer-label">Blue</p>
-          <p id="answer-blue"></p>
-        </div>
-        <div>
-          <p class="answer-label">Red</p>
-          <p id="answer-red"></p>
-        </div>
-        <div>
-          <p class="answer-label">Tree</p>
-          <p id="answer-tree" class="mono"></p>
-        </div>
+      <p id="answer-asked" class="answer-asked"></p>
+
+      <p class="dont-callout" id="answer-dont" hidden></p>
+
+      <div class="path-strip" id="path-strip" hidden>
+        <span class="path-label">Route to this future</span>
+        <div class="path-chain" id="path-chain"></div>
+      </div>
+
+      <dl class="metric-row" id="metric-row"></dl>
+      <p class="metric-caption" id="metric-caption"></p>
+
+      <div class="sides-grid">
+        <section class="side-col blue-col">
+          <h3>Blue proposed <span class="side-count" id="blue-count"></span></h3>
+          <ul class="side-list" id="blue-list"></ul>
+        </section>
+        <section class="side-col red-col">
+          <h3>Red attacked <span class="side-count" id="red-count"></span></h3>
+          <ul class="side-list" id="red-list"></ul>
+        </section>
       </div>
     </div>
 
@@ -220,6 +218,16 @@
         </label>
         <button type="button" class="run-btn" id="run">Fork futures</button>
         <p id="status" class="status" role="status"></p>
+
+        <div class="run-progress" id="run-progress" hidden>
+          <div class="progress-head">
+            <span id="progress-count" class="mono">0 / 0</span>
+            <span id="progress-clock" class="mono">0:00</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <p class="progress-now" id="progress-now">Starting…</p>
+          <ol class="progress-feed" id="progress-feed"></ol>
+        </div>
         <label class="check"><input type="checkbox" id="baseline" checked /> Show chatbot foil</label>
 
         <div class="outcome-panel" id="outcome-panel" hidden>

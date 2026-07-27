@@ -1096,9 +1096,8 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
   }
   function branchVerdictLine(b, recommended) {
     if (b.alive === false) {
-      const reason = String(b.kill_reason || "Failed hard arithmetic");
-      const short = reason.replace(/^ALIVE CHECK:\s*/i, "").replace(/\s*—\s*KILL\s*—\s*/i, " · ");
-      return { text: truncate(short, 46), fail: true };
+      const reason = humanizeDetail(b.kill_reason || "Failed hard arithmetic");
+      return { text: truncate(reason, 46), fail: true };
     }
     const rw = Number(b.runway_months);
     const cf = Number.isFinite(rw) && rw >= 900;
@@ -1129,7 +1128,7 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     lines.slice(0, 2).forEach((line, i) => {
       selection
         .append("tspan")
-        .attr("x", 10)
+        .attr("x", PAD_X)
         .attr("dy", i === 0 ? 0 : lineHeight)
         .text(line);
     });
@@ -1158,8 +1157,18 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     svg.transition().duration(350).call(zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
-  const CARD_W = 178;
-  const CARD_H = 78;
+  // Card geometry. Text is laid out on a fixed grid: id at the top, title in the
+  // middle (up to 2 wrapped lines), then meta and verdict anchored to the BOTTOM so
+  // rows never collide whether the title wraps to one line or two.
+  const CARD_W = 212;
+  const CARD_H = 94;
+  const PAD_X = 11;
+  const TEXT_W = CARD_W - PAD_X * 2;
+  // Approx advance width per character, by the font each row uses.
+  const CH_MONO = 5.75;
+  const CH_DISPLAY = 7.0;
+  const CH_SANS = 5.35;
+  const fitChars = (px, per) => Math.max(8, Math.floor(px / per));
 
   function renderGraph(data, allowedIds, revealedIds = null) {
     if (typeof d3 === "undefined") return;
@@ -1274,12 +1283,22 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       .attr("rx", 6)
       .attr("ry", 6);
     nodesEnter.append("rect").attr("class", "node-accent").attr("width", 4).attr("height", CARD_H).attr("rx", 2);
-    nodesEnter.append("text").attr("class", "node-id").attr("x", 10).attr("y", 16);
-    nodesEnter.append("text").attr("class", "node-title").attr("x", 10).attr("y", 34);
-    nodesEnter.append("text").attr("class", "node-meta").attr("x", 10).attr("y", 50);
-    nodesEnter.append("text").attr("class", "node-verdict").attr("x", 10).attr("y", 66);
+    nodesEnter.append("text").attr("class", "node-id").attr("x", PAD_X).attr("y", 17);
+    nodesEnter.append("text").attr("class", "node-title").attr("x", PAD_X).attr("y", 36);
+    nodesEnter.append("text").attr("class", "node-meta").attr("x", PAD_X).attr("y", CARD_H - 26);
+    nodesEnter.append("text").attr("class", "node-verdict").attr("x", PAD_X).attr("y", CARD_H - 10);
 
-    nodesEnter.transition().duration(350).style("opacity", 1);
+    // Named transition on purpose: the unnamed transform transition on `merged` below
+    // includes these same elements, and an unnamed fade would be interrupted by it —
+    // leaving every card stuck at opacity 0 (links visible, nodes invisible).
+    // Clearing the inline style on end also hands opacity back to CSS, so .dim works.
+    nodesEnter
+      .transition("fade")
+      .duration(350)
+      .style("opacity", 1)
+      .on("end", function () {
+        d3.select(this).style("opacity", null);
+      });
     const merged = nodesEnter.merge(nodes);
     merged
       .classed("dim", (d) => revealed && !revealed.has(d.data.id))
@@ -1301,22 +1320,30 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     });
     merged.select(".node-id").text((d) => {
       const side = (d.data.side_created || "seed").toUpperCase();
-      const desk = d.data.desk ? ` · ${d.data.desk}` : "";
       const status = d.data.alive === false ? "KILLED" : d.data.id === recommended ? "PICK" : "ALIVE";
-      return `${d.data.id} · ${side}${desk} · ${status}`;
+      const budget = fitChars(TEXT_W, CH_MONO);
+      // Desk is the first thing to drop when the row would overflow.
+      const full = `${d.data.id} · ${side}${d.data.desk ? ` · ${d.data.desk}` : ""} · ${status}`;
+      return full.length <= budget ? full : `${d.data.id} · ${side} · ${status}`;
     });
     merged.select(".node-title").each(function (d) {
-      wrapSvgText(d3.select(this), truncate(branchTitle(d.data), 34), 26, 12);
+      const perLine = fitChars(TEXT_W, CH_DISPLAY);
+      wrapSvgText(d3.select(this), truncate(branchTitle(d.data), perLine * 2 - 2), perLine, 15);
     });
     merged.select(".node-meta").text((d) => {
-      const co = pretty(d.data.cash_out_date);
-      const rw = d.data.runway_months != null ? `${Number(d.data.runway_months).toFixed(1)}mo` : "—";
-      return `cash-out ${co} · ${rw}`;
+      const rw = Number(d.data.runway_months);
+      const cf = Number.isFinite(rw) && rw >= 900;
+      const budget = fitChars(TEXT_W, CH_MONO);
+      if (cf) return "cash-flow positive";
+      const long = `cash-out ${pretty(d.data.cash_out_date)} · ${rw.toFixed(1)}mo runway`;
+      if (long.length <= budget) return long;
+      return `cash-out ${pretty(d.data.cash_out_date)} · ${rw.toFixed(1)}mo`;
     });
     merged.select(".node-verdict").each(function (d) {
       const v = branchVerdictLine(d.data, recommended);
       const el = d3.select(this);
-      el.attr("class", `node-verdict${v.fail ? " fail" : ""}`).text(v.text);
+      el.attr("class", `node-verdict${v.fail ? " fail" : ""}`)
+        .text(truncate(v.text, fitChars(TEXT_W, CH_SANS)));
     });
 
     nodes.exit().transition().duration(180).style("opacity", 0).remove();
@@ -1429,6 +1456,47 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
   });
   $("btn-fit")?.addEventListener("click", () => fitGraph());
 
+  // ---- Human-readable verifier vocabulary --------------------------------
+  // The engine speaks in check ids and shouty assert strings. Founders shouldn't
+  // have to. Names of art (runway, net burn, cash-out, milestone) are kept.
+  const CHECK_META = {
+    runway_floor: { label: "Runway floor", blurb: "Cash ÷ net burn must clear 1.5 months" },
+    alive_at_milestone: { label: "Alive at the milestone", blurb: "Cash must outlast the milestone date" },
+    hire_burn_delta: { label: "Hire burn step", blurb: "A hire must not add $30k+/mo of burn at once" },
+    milestone_before_cashout: { label: "Milestone before cash-out", blurb: "The date must land while cash remains" },
+    cash_out_date: { label: "Cash-out date", blurb: "Deterministic from cash, burn and MRR" },
+    plan_cost_applied: { label: "Your stated cost applied", blurb: "The plan's price comes from your intake answers, not the model" },
+    apply_effect: { label: "Effect application", blurb: "Model proposes the move, code computes the numbers" },
+  };
+
+  const checkLabel = (id) => CHECK_META[id]?.label || String(id || "").replace(/_/g, " ");
+
+  // Add thousands separators to bare figures the engine emitted unformatted.
+  const commafy = (t) => String(t).replace(/\$(\d{4,})(?!\d*,)/g, (_, n) => `$${Number(n).toLocaleString()}`);
+
+  function humanizeDetail(text) {
+    let t = commafy(String(text || "").trim());
+    t = t
+      .replace(/^ALIVE CHECK:\s*/i, "")
+      .replace(/\s*—\s*KILL\s*—\s*cash ends before ship/i, " — cash runs out first")
+      .replace(/\s*—\s*KILL\s*—\s*/i, " — ")
+      .replace(/\s*—\s*BRUTAL FAIL\s*\(([^)]+)\)/i, " — too big a step in one go ($1)")
+      .replace(/\s*—\s*OK\s*$/i, "")
+      .replace(/^No prior burn$/i, "Not a hiring move — this check does not apply")
+      .replace(/^Runway\s+([\d.]+)\s+months/i, "Runway $1 months")
+      .replace(/\bCF\+/g, "cash-flow positive");
+    return t;
+  }
+
+  // "finance Blue: <claim> [Move name]" → just the claim; the title and kicker
+  // already carry the move name and the desk.
+  function branchClaim(b) {
+    return String(b.claim || b.summary || "")
+      .replace(/^\s*\w+\s+(Blue|Red):\s*/i, "")
+      .replace(/\s*\[[^\]]*\]\s*$/, "")
+      .trim();
+  }
+
   function selectBranch(id) {
     if (!runData) return;
     selectedId = id;
@@ -1461,18 +1529,18 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
       <div><dt>Burn / MRR</dt><dd>${money(b.monthly_burn)} / ${money(b.mrr)}</dd></div>
       <div><dt>Headcount</dt><dd>${b.headcount != null ? b.headcount : "—"}</dd></div>
       <div><dt>Cost Δ</dt><dd>${money(b.cost_delta)}</dd></div>`;
-    $("insp-summary").textContent = b.summary || "";
+    $("insp-summary").textContent = branchClaim(b);
     const kill = $("insp-kill");
     const win = $("insp-win");
     if (b.kill_reason) {
       kill.hidden = false;
-      kill.innerHTML = `<strong>Why it fails</strong><br>${escapeHtml(b.kill_reason)}`;
+      kill.innerHTML = `<strong>Why it fails</strong><br>${escapeHtml(humanizeDetail(b.kill_reason))}`;
       win.hidden = true;
     } else {
       kill.hidden = true;
       if (b.milestone_hit) {
         win.hidden = false;
-        win.innerHTML = `<strong>Why it succeeds</strong><br>Cash-out ${escapeHtml(pretty(b.cash_out_date))} is on/after milestone ${escapeHtml(pretty(b.milestone_date))} — alive_at_milestone passes.`;
+        win.innerHTML = `<strong>Why it succeeds</strong><br>Cash lasts until ${escapeHtml(pretty(b.cash_out_date))}, which is after the ${escapeHtml(pretty(b.milestone_date))} milestone — so the company is still solvent on the day it has to deliver.`;
       } else if (!b.parent_id) {
         win.hidden = false;
         win.innerHTML = `<strong>Seed</strong><br>Starting company state before Blue/Red forks.`;
@@ -1484,12 +1552,21 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     const tools = (runData.evidence_log || runData.tool_log || []).filter((t) => t.branch_id === id);
     $("insp-tools").innerHTML = tools.length
       ? tools
-          .map(
-            (t) =>
-              `<li><strong class="${(t.passed ?? t.ok) ? "" : "kill-line"}">${escapeHtml(t.check || t.tool)}</strong> — ${escapeHtml(t.detail || t.value || "")}</li>`
-          )
+          .map((t) => {
+            const id = t.check || t.tool;
+            const ok = t.passed ?? t.ok;
+            const meta = CHECK_META[id];
+            return `<li class="ev-row ${ok ? "pass" : "fail"}" title="${escapeHtml(id)}">
+              <div class="ev-head">
+                <span class="ev-mark">${ok ? "✓" : "✕"}</span>
+                <strong>${escapeHtml(checkLabel(id))}</strong>
+                <span class="ev-rule">${escapeHtml(meta ? meta.blurb : "")}</span>
+              </div>
+              <p class="ev-detail">${escapeHtml(humanizeDetail(t.detail || t.value || ""))}</p>
+            </li>`;
+          })
           .join("")
-      : "<li class='empty'>None yet</li>";
+      : "<li class='empty'>No checks run yet</li>";
     if (typeof d3 !== "undefined") {
       d3.select("#graph").selectAll(".branch-node").classed("selected", (d) => d.data.id === id);
     }
@@ -1505,34 +1582,229 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     document.querySelectorAll(".branch-chip").forEach((c) => c.classList.remove("on"));
   });
 
+  // Money/measure formatting kept explicit — founders read these as terms of art.
+  const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? "—" : `$${Math.round(Number(n)).toLocaleString()}`);
+
+  function countUp(el, text) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const isDate = /[A-Za-z]{3}\s+\d{1,2},/.test(text);
+    const m = String(text).match(/^(.*?)(-?[\d,]+(?:\.\d+)?)(.*)$/);
+    if (!m || reduce || isDate) {
+      el.textContent = text;
+      return;
+    }
+    const [, pre, raw, post] = m;
+    const target = parseFloat(raw.replace(/,/g, ""));
+    if (!Number.isFinite(target)) {
+      el.textContent = text;
+      return;
+    }
+    const dp = (raw.split(".")[1] || "").length;
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / 520);
+      const v = target * (1 - Math.pow(1 - p, 3));
+      el.textContent = pre + v.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp }) + post;
+      if (p < 1) requestAnimationFrame(step);
+      else el.textContent = text;
+    };
+    requestAnimationFrame(step);
+  }
+
+  function metric(label, value, note, tone) {
+    return `<div class="metric${tone ? " " + tone : ""}">
+      <dt>${escapeHtml(label)}</dt>
+      <dd data-value="${escapeHtml(value)}">${escapeHtml(value)}</dd>
+      ${note ? `<span class="metric-note">${escapeHtml(note)}</span>` : ""}
+    </div>`;
+  }
+
+  function renderMetricRow(m) {
+    const row = $("metric-row");
+    if (!row) return;
+    const a = m.answer || {};
+    const best = (runData?.branches || []).find((b) => b.id === m.recommended_branch_id);
+    if (!best) {
+      row.innerHTML = "";
+      return;
+    }
+    const rw = Number(best.runway_months);
+    const cfPositive = Number.isFinite(rw) && rw >= 900;
+    const netBurn = Number(best.monthly_burn) - Number(best.mrr);
+    const margin = a.margin_days;
+    const cells = [];
+
+    cells.push(
+      metric("Cash-out date", cfPositive ? "none" : pretty(best.cash_out_date),
+        cfPositive ? "MRR covers burn" : "when cash hits zero")
+    );
+    cells.push(
+      metric("Milestone", pretty(best.milestone_date), best.milestone || "target date")
+    );
+    if (margin != null && !cfPositive) {
+      cells.push(
+        metric("Margin", `${margin} days`,
+          margin >= 0 ? "milestone clears first" : "cash dies first",
+          margin >= 0 ? "good" : "bad")
+      );
+    }
+    cells.push(
+      metric("Runway", cfPositive ? "cash-flow positive" : `${rw.toFixed(1)} months`,
+        "cash ÷ net burn", cfPositive ? "good" : rw < 6 ? "warn" : "")
+    );
+    cells.push(
+      metric("Net burn", netBurn <= 0 ? "profitable" : `${usd(netBurn)}/mo`, "burn − MRR")
+    );
+    cells.push(metric("MRR", `${usd(best.mrr)}/mo`, `${best.headcount} headcount`));
+    cells.push(
+      metric("Branches", `${a.survivors ?? "—"} survived`,
+        `${a.kills ?? 0} killed by verifiers`, Number(a.kills) > 0 ? "warn" : "")
+    );
+    row.innerHTML = cells.join("");
+    row.querySelectorAll("dd[data-value]").forEach((dd, i) => {
+      const text = dd.getAttribute("data-value");
+      dd.textContent = "";
+      setTimeout(() => countUp(dd, text), 70 + i * 50);
+    });
+  }
+
+  function renderSides(m) {
+    const branchOf = (id) => (runData?.branches || []).find((b) => b.id === id);
+    const chip = (id) => (branchOf(id) ? `<button type="button" class="branch-ref" data-id="${id}">${id}</button>` : "");
+
+    const blue = (runData?.findings || []).filter((f) => f.side === "blue");
+    $("blue-count").textContent = blue.length ? `· ${blue.length} moves` : "";
+    $("blue-list").innerHTML = blue.length
+      ? blue
+          .map((f) => {
+            const b = branchOf(f.branch_id);
+            const dead = b && b.alive === false;
+            const pick = b && b.id === m.recommended_branch_id;
+            const tag = pick
+              ? `<span class="outcome pick">recommended</span>`
+              : dead
+                ? `<span class="outcome dead">killed</span>`
+                : `<span class="outcome live">survives</span>`;
+            const num = dead
+              ? humanizeDetail(b.kill_reason || "")
+              : b
+                ? `cash-out ${pretty(b.cash_out_date)}`
+                : "";
+            return `<li>
+              <div class="side-top">${chip(f.branch_id)}<strong>${escapeHtml(f.label || f.claim || "move")}</strong>${tag}</div>
+              <p class="side-why">${escapeHtml(f.claim || "")}</p>
+              <p class="side-num mono">${escapeHtml(num)}</p>
+            </li>`;
+          })
+          .join("")
+      : `<li class="empty">No Blue moves recorded.</li>`;
+
+    const red = runData?.attacks || [];
+    $("red-count").textContent = red.length ? `· ${red.length} attacks` : "";
+    $("red-list").innerHTML = red.length
+      ? red
+          .map((a) => {
+            const b = branchOf(a.branch_id);
+            const dead = b && b.alive === false;
+            return `<li>
+              <div class="side-top">${chip(a.branch_id)}<span class="sev ${escapeHtml(a.severity || "medium")}">${escapeHtml(a.severity || "medium")}</span>${dead ? `<span class="outcome dead">broke it</span>` : `<span class="outcome live">survived</span>`}</div>
+              <p class="side-why">${escapeHtml(a.claim || "")}</p>
+              <p class="side-num mono">${escapeHtml(b ? (dead ? "branch killed" : `held · cash-out ${pretty(b.cash_out_date)}`) : "")}</p>
+            </li>`;
+          })
+          .join("")
+      : `<li class="empty">No Red attacks recorded.</li>`;
+  }
+
+  function renderPath(m) {
+    // A recommended branch is the END of a chain of moves, not a single move. Without
+    // the chain the metrics look wrong (headcount/MRR are cumulative), so show the route.
+    const strip = $("path-strip");
+    const chain = $("path-chain");
+    if (!strip || !chain) return;
+    const byId = new Map((runData?.branches || []).map((b) => [b.id, b]));
+    let node = byId.get(m.recommended_branch_id);
+    if (!node) {
+      strip.hidden = true;
+      return;
+    }
+    const route = [];
+    const guard = new Set();
+    while (node && !guard.has(node.id)) {
+      guard.add(node.id);
+      route.unshift(node);
+      node = node.parent_id ? byId.get(node.parent_id) : null;
+    }
+    if (route.length < 2) {
+      strip.hidden = true;
+      return;
+    }
+    strip.hidden = false;
+    chain.innerHTML = route
+      .map((b, i) => {
+        const isSeed = !b.parent_id;
+        const isLast = i === route.length - 1;
+        const name = isSeed
+          ? "Seed"
+          : b.side_created === "red"
+            ? `Red: ${truncate(String(b.last_stressor || "stress"), 30)}`
+            : truncate(String(b.last_action || b.label || "move"), 30);
+        const cls = ["path-node", b.side_created, isLast ? "final" : ""].filter(Boolean).join(" ");
+        return `${i ? '<span class="path-arrow">→</span>' : ""}<button type="button" class="${cls}" data-id="${b.id}"><span class="path-id mono">${escapeHtml(b.id)}</span>${escapeHtml(name)}</button>`;
+      })
+      .join("");
+    chain.querySelectorAll(".path-node").forEach((btn) => {
+      btn.addEventListener("click", () => focusBranch(btn.dataset.id));
+    });
+
+    const moves = route.filter((b) => b.side_created === "blue").length;
+    const stresses = route.filter((b) => b.side_created === "red").length;
+    const cap = $("metric-caption");
+    if (cap) {
+      cap.textContent = `State after ${moves} move${moves === 1 ? "" : "s"} and ${stresses} Red stress test${stresses === 1 ? "" : "s"} along this route — not the seed figures.`;
+      cap.hidden = false;
+    }
+  }
+
   function renderClearAnswer(m) {
     const box = $("clear-answer");
     if (!box) return;
     const a = m.answer || {};
-    if (!a.do && !a.one_liner && !m.prose) {
+    const headline = a.do || m.title || "";
+    if (!headline && !m.prose) {
       box.hidden = true;
       return;
     }
     box.hidden = false;
     box.classList.remove("is-scrolled-away");
-    $("answer-do").textContent = a.do || m.title || "Verdict";
+
+    // Split the leading YES / NO / PARTIAL / NOT YET off into its own badge so the
+    // verdict reads at a glance instead of hiding inside a sentence.
+    const verdict = headline.match(/^\s*(NOT YET|PARTIAL|YES|NO)\b[\s—:,-]*/i);
+    const badge = $("verdict-badge");
+    if (verdict) {
+      const word = verdict[1].toUpperCase();
+      badge.hidden = false;
+      badge.textContent = word;
+      badge.className = `verdict-badge ${word === "YES" ? "yes" : word === "NO" ? "no" : "partial"}`;
+      $("answer-do").textContent = headline.slice(verdict[0].length).trim() || headline;
+    } else {
+      badge.hidden = true;
+      $("answer-do").textContent = headline;
+    }
+
     setLinkedText("answer-because", a.because || m.prose || "");
-    if ($("answer-detail")) {
-      setLinkedText("answer-detail", a.detail || "");
-      $("answer-detail").hidden = !a.detail;
-    }
-    $("answer-do-detail").textContent = a.decision ? `You asked: ${a.decision}` : a.one_liner || "";
-    setLinkedText("answer-dont", a.dont || m.kill_shots || "See killed branches on the tree.");
-    $("answer-dates").textContent = a.dates || m.date_line || "";
-    if ($("answer-blue")) $("answer-blue").textContent = a.blue || "—";
-    if ($("answer-red")) $("answer-red").textContent = a.red || "—";
-    if ($("answer-tree")) {
-      const s = a.survivors != null ? a.survivors : "—";
-      const k = a.kills != null ? a.kills : "—";
-      const hit = a.milestone_hit === true ? "milestone HIT" : a.milestone_hit === false ? "milestone MISS" : "";
-      const margin = a.margin_days != null ? ` · margin ${a.margin_days}d` : "";
-      $("answer-tree").textContent = `${s} survivors · ${k} kills${hit ? " · " + hit : ""}${margin}`;
-    }
+    $("answer-asked").textContent = a.decision ? `You asked: ${a.decision}` : "";
+    $("answer-asked").hidden = !a.decision;
+
+    const dont = $("answer-dont");
+    const dontText = a.dont && !/^No alternative/i.test(a.dont) ? a.dont : "";
+    dont.hidden = !dontText;
+    if (dontText) dont.innerHTML = `<strong>Don’t:</strong> ${linkifyBranches(dontText)}`;
+
+    renderPath(m);
+    renderMetricRow(m);
+    renderSides(m);
   }
 
   function syncClearAnswerOnScroll() {
@@ -1547,27 +1819,28 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     const decision = m.decision || "";
     const desk = m.desk ? String(m.desk) : "";
     renderClearAnswer(m);
+    // The verdict panel above already carries the answer, the numbers and Blue/Red.
+    // The memo only holds what is NOT shown there.
     $("memo").innerHTML = `
       <h3 class="memo-title">${escapeHtml(m.title || "Decision memo")}</h3>
-      ${decision ? `<p class="decision-verdict"><strong>Your decision:</strong> ${escapeHtml(decision)}</p>` : ""}
-      ${desk ? `<p class="mono desk-tag">Desk · ${escapeHtml(desk)}</p>` : ""}
-      <div class="pick-pill">Recommended ${escapeHtml(m.recommended_branch_id || "?")}</div>
-      <p class="date-line mono">${escapeHtml(m.date_line || "")}</p>
-      <p>${escapeHtml(m.prose || "")}</p>
-      ${(m.answer && m.answer.detail) ? `<p><strong>Detail:</strong> ${escapeHtml(m.answer.detail)}</p>` : ""}
-      ${(m.answer && m.answer.blue) ? `<p><strong>Blue:</strong> ${escapeHtml(m.answer.blue)}</p>` : ""}
-      ${(m.answer && m.answer.red) ? `<p><strong>Red:</strong> ${escapeHtml(m.answer.red)}</p>` : ""}
-      <p class="kill-line"><strong>Kill shots:</strong> ${escapeHtml(m.kill_shots || "")}</p>
-      <p><strong>Open risks:</strong> ${escapeHtml(m.open_risks || "")}</p>
-      <p><strong>Dissent:</strong> ${escapeHtml(m.dissent || "")}</p>`;
+      ${decision ? `<p class="memo-asked">${escapeHtml(decision)}</p>` : ""}
+      <div class="memo-tags">
+        <span class="pick-pill">Recommended ${escapeHtml(m.recommended_branch_id || "?")}</span>
+        ${desk ? `<span class="desk-tag mono">${escapeHtml(desk)} desk</span>` : ""}
+      </div>
+      <dl class="memo-facts">
+        <dt>Kill shots</dt><dd>${linkifyBranches(humanizeDetail(m.kill_shots || "None on the recommended line."))}</dd>
+        <dt>Open risks</dt><dd>${escapeHtml(m.open_risks || "—")}</dd>
+        <dt>Dissent</dt><dd>${linkifyBranches(m.dissent || "—")}</dd>
+      </dl>`;
     $("baseline-out").innerHTML = `<p>${escapeHtml(data.baseline || "No baseline")}</p>`;
     $("hard-rules").innerHTML =
       (data.verifier_registry || [])
-        .map((v) => `<li><strong>${escapeHtml(v.name)}</strong> · ${escapeHtml(v.module)} — ${escapeHtml(v.blurb)}</li>`)
+        .map((v) => `<li><strong>${escapeHtml(checkLabel(v.name))}</strong> <span class="rule-id mono">${escapeHtml(v.name)}</span><br><span class="rule-blurb">${escapeHtml(v.blurb)}</span></li>`)
         .join("") || "<li class='empty'>None</li>";
     $("reco-banner").hidden = false;
-    $("reco-title").textContent = m.date_line || m.title || "Survivor";
-    $("reco-body").textContent = (m.answer && m.answer.one_liner) || m.prose || "";
+    $("reco-title").textContent = m.title || "Survivor";
+    $("reco-body").textContent = m.date_line || m.prose || "";
     renderPlan(m);
   }
 
@@ -1595,11 +1868,22 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
 
   function renderTimeline(data) {
     const events = data.events || [];
+    const LABEL = { seed: "SEED", blue: "BLUE", red: "RED", arbiter: "ARBITER", walker: "JAC", prune: "PRUNE", halt: "HALT" };
     $("timeline").innerHTML = events
-      .map(
-        (ev, i) =>
-          `<li data-kind="${escapeHtml(ev.kind)}" data-index="${i}"><div class="kind">${escapeHtml(ev.kind)} · ${escapeHtml(ev.branch_id || "")}</div><div>${escapeHtml(ev.message)}</div></li>`
-      )
+      .map((ev, i) => {
+        let msg = String(ev.message || "");
+        const killed = /\[KILL\]/.test(msg) || /KILL —/.test(msg);
+        // Strip the id prefix (the chip shows it) and the verifier's shouty formatting.
+        msg = humanizeDetail(msg.replace(/^b\d+:\s*/, "").replace(/\s*\[KILL\]\s*/, " "));
+        return `<li data-kind="${escapeHtml(ev.kind)}" data-index="${i}" class="${killed ? "killed" : ""}">
+          <div class="tl-head">
+            <span class="tl-kind ${escapeHtml(ev.kind)}">${escapeHtml(LABEL[ev.kind] || ev.kind)}</span>
+            ${ev.branch_id ? `<span class="tl-id mono">${escapeHtml(ev.branch_id)}</span>` : ""}
+            ${killed ? `<span class="outcome dead">killed</span>` : ""}
+          </div>
+          <div class="tl-msg">${escapeHtml(msg.trim())}</div>
+        </li>`;
+      })
       .join("");
     $("timeline").querySelectorAll("li").forEach((li) => {
       li.addEventListener("click", () => {
@@ -1793,42 +2077,141 @@ Spine: what happens to the cash-out date, and does the milestone land before it?
     }
     box.hidden = false;
     $("kill-callout-title").textContent = `${dead.id} killed · ${dead.last_action || dead.move || dead.label || "branch"}`;
-    $("kill-callout-body").textContent = dead.kill_reason;
+    $("kill-callout-body").textContent = humanizeDetail(dead.kill_reason);
     box.onclick = () => selectBranch(dead.id);
+  }
+
+  // ---- Live run progress (SSE over fetch, so we can still POST a body) ----
+  let progressTimer = null;
+
+  function progressReset(expected) {
+    const box = $("run-progress");
+    if (!box) return;
+    box.hidden = false;
+    $("progress-feed").innerHTML = "";
+    $("progress-fill").style.width = "0%";
+    $("progress-fill").classList.remove("waiting");
+    $("progress-count").textContent = `0 / ${expected || "?"}`;
+    $("progress-now").textContent = "Seeding company state…";
+    const t0 = Date.now();
+    clearInterval(progressTimer);
+    progressTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - t0) / 1000);
+      $("progress-clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    }, 1000);
+  }
+
+  function progressStop() {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
+
+  function progressFeed(text, cls) {
+    const feed = $("progress-feed");
+    if (!feed) return;
+    const li = document.createElement("li");
+    if (cls) li.className = cls;
+    li.textContent = text;
+    feed.appendChild(li);
+    feed.scrollTop = feed.scrollHeight;
+  }
+
+  function progressAdvance(done, expected) {
+    // Hold short of 100% until the run actually returns.
+    const pct = expected ? Math.min(95, Math.round((done / expected) * 100)) : 10;
+    $("progress-fill").style.width = `${pct}%`;
+    $("progress-count").textContent = `${done} / ${expected}`;
+  }
+
+  async function runStreaming(payload, onDone, onError) {
+    const res = await fetch("/api/run/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok || !res.body) throw new Error(`Run failed (${res.status})`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let expected = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const frames = buf.split("\n\n");
+      buf = frames.pop() || "";
+      for (const frame of frames) {
+        let name = "", data = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event: ")) name = line.slice(7).trim();
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (!name || !data) continue;
+        let d;
+        try { d = JSON.parse(data); } catch { continue; }
+        if (name === "start") {
+          expected = d.expected_steps || 0;
+          progressReset(expected);
+        } else if (name === "step") {
+          $("progress-fill").classList.remove("waiting");
+          $("progress-now").textContent = d.message;
+        } else if (name === "event") {
+          expected = d.expected || expected;
+          progressAdvance(d.done, expected);
+          const killed = /\[KILL\]|KILL —/.test(d.message);
+          progressFeed(humanizeDetail(d.message.replace(/\s*\[KILL\]\s*/, " ")), killed ? "kill" : d.kind);
+        } else if (name === "wait") {
+          $("progress-fill").classList.add("waiting");
+          $("progress-now").textContent = d.message;
+          progressFeed(d.message, "wait");
+        } else if (name === "done") {
+          $("progress-fill").style.width = "100%";
+          $("progress-now").textContent = "Done.";
+          progressStop();
+          return onDone(d);
+        } else if (name === "error") {
+          progressStop();
+          return onError(new Error(d.error || "Run failed"));
+        }
+      }
+    }
+    progressStop();
+    throw new Error("Stream ended before the run finished");
   }
 
   $("run").addEventListener("click", async () => {
     const btn = $("run");
     btn.disabled = true;
-    $("status").textContent =
-      state.fixtureId === "custom"
-        ? "Forking futures for your plan (scenario Blue/Red + verifiers)…"
-        : "Seeding CompanyState · Blue/Red · verifiers…";
+    $("status").textContent = "Forking futures — each move is a live model call.";
     stopPlay();
     try {
       await ensureProfileSynced();
-      const res = await fetch("/api/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fixture_id: state.fixtureId || "interlock",
-          proposal: withPriorHistory(state.proposal),
-          company: state.company || {},
-          areas: state.modules || [],
-          modules: state.modules || [],
-          baseline: $("baseline").checked,
-          rounds: Number($("depth").value) || 4,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || "Run failed");
-      bindRun(data);
-      $("status").textContent = data.memo?.date_line || `Done — ${data.memo?.recommended_branch_id || "?"}`;
+      const payload = {
+        fixture_id: state.fixtureId || "custom",
+        proposal: withPriorHistory(state.proposal),
+        company: state.company || {},
+        areas: state.modules || [],
+        modules: state.modules || [],
+        baseline: $("baseline").checked,
+        rounds: Number($("depth").value) || 3,
+      };
+      await runStreaming(
+        payload,
+        (data) => {
+          bindRun(data);
+          $("status").textContent = data.memo?.answer?.do || data.memo?.date_line || "Done.";
+          setTimeout(() => { const b = $("run-progress"); if (b) b.hidden = true; }, 1200);
+        },
+        (err) => { throw err; }
+      );
     } catch (err) {
+      progressStop();
+      const box = $("run-progress");
+      if (box) box.hidden = true;
       const msg = String(err.message || err);
       $("status").textContent =
         msg.includes("Failed to fetch") || msg.includes("NetworkError")
-          ? "Can't reach the server on :8765 — restart: JAC_HOME=/tmp/jac_home python3 serve.py"
+          ? "Can't reach the server on :8765 — restart: python3 serve.py"
           : `Error: ${msg}`;
     } finally {
       btn.disabled = false;
